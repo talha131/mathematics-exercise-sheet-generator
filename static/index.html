@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Math Exercise Sheet Generator</title>
+<style>
+  :root {
+    --fg: #1a1a1a;
+    --muted: #6a6a6a;
+    --accent: #2a6fdb;
+    --accent-hover: #1f57b0;
+    --accent-soft: #e7efff;
+    --border: #d7d7d7;
+    --bg: #f4f5f7;
+    --card: #ffffff;
+    --danger: #b00020;
+    --success: #1f7a3a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    padding: 16px 24px;
+    background: #fff;
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 18px; margin: 0; }
+  header .sub { color: var(--muted); margin: 2px 0 0; font-size: 13px; }
+
+  .layout {
+    flex: 1;
+    display: grid;
+    grid-template-columns: minmax(380px, 480px) 1fr;
+    gap: 0;
+    overflow: hidden;
+  }
+  .form-pane {
+    overflow-y: auto;
+    padding: 18px;
+    border-right: 1px solid var(--border);
+    background: var(--bg);
+  }
+  .preview-pane {
+    overflow: auto;
+    background: #d9dadd;
+  }
+  .preview-pane .placeholder {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #555;
+    font-size: 14px;
+    padding: 24px;
+    text-align: center;
+  }
+  .preview-pane iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: #d9dadd;
+  }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+  }
+  .card h2 {
+    font-size: 14px;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .card.op h2 { cursor: pointer; }
+  .card.op h2 label { cursor: pointer; user-select: none; }
+  .card.op .body {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--border);
+  }
+  .card.op[data-enabled="false"] .body { display: none; }
+  .card.op[data-enabled="false"] {
+    background: #fafafa;
+  }
+  .card.op[data-enabled="false"] h2 { color: var(--muted); }
+
+  .row {
+    display: grid;
+    grid-template-columns: 110px 1fr 1fr;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .row:last-child { margin-bottom: 0; }
+  .row .label {
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .row .label small { display: block; color: var(--muted); font-size: 11px; }
+  .row .field {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .row .field span {
+    color: var(--muted);
+    font-size: 12px;
+    min-width: 28px;
+  }
+  input[type="number"], input[type="text"] {
+    width: 100%;
+    padding: 7px 9px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    font: inherit;
+    background: #fff;
+  }
+  input[type="number"]:disabled, input[type="text"]:disabled {
+    background: #f1f1f1;
+    color: #999;
+  }
+  .count-row {
+    display: grid;
+    grid-template-columns: 110px 110px 1fr;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  .top-card .row-title {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 12px;
+  }
+  .checkbox-inline {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+  }
+  .legend {
+    color: var(--muted);
+    font-size: 11px;
+    margin-top: 6px;
+  }
+  .actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+  }
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 10px 18px;
+    border-radius: 6px;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover { background: var(--accent-hover); }
+  button.secondary {
+    background: #fff;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+  }
+  button.secondary:hover { background: var(--accent-soft); }
+  button:disabled { opacity: 0.55; cursor: not-allowed; }
+
+  .status {
+    color: var(--muted);
+    font-size: 13px;
+    margin-top: 8px;
+  }
+  .status.error {
+    color: var(--danger);
+  }
+  .status.success { color: var(--success); }
+  .status ul { margin: 4px 0 0 18px; padding: 0; }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .form-pane { border-right: 0; border-bottom: 1px solid var(--border); max-height: 55vh; }
+    .preview-pane { min-height: 45vh; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Math Exercise Sheet Generator</h1>
+  <p class="sub">A4, black &amp; white, print-ready. Designed for Grade&nbsp;2–3.</p>
+</header>
+
+<div class="layout">
+  <div class="form-pane">
+    <form id="form">
+
+      <div class="card top-card">
+        <div class="row-title">
+          <div>
+            <div class="label" style="margin-bottom:4px;">Worksheet title</div>
+            <input id="title" type="text" value="Math Practice" />
+          </div>
+          <div class="checkbox-inline" style="align-self:end;">
+            <input id="includeKey" type="checkbox" checked />
+            <label for="includeKey">Answer key page</label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Templates filled by JS so we don't repeat markup four times -->
+      <div id="ops"></div>
+
+      <div class="actions">
+        <button type="button" id="previewBtn">Preview worksheet</button>
+        <button type="button" id="downloadBtn" class="secondary" disabled>Download .docx</button>
+      </div>
+      <div id="status" class="status"></div>
+    </form>
+  </div>
+
+  <div class="preview-pane">
+    <div class="placeholder" id="placeholder">
+      Click <strong>&nbsp;Preview worksheet&nbsp;</strong> to see how the printed page will look.
+    </div>
+    <iframe id="previewFrame" style="display:none;" title="Worksheet preview"></iframe>
+  </div>
+</div>
+
+<script>
+  /* -------- operation card template -------- */
+  const OPS = [
+    { id: "addition",       label: "Addition (+)",        defaultEnabled: true,
+      defaults: { count: 9, min1: 10, max1: 99, min2: 10, max2: 99 } },
+    { id: "subtraction",    label: "Subtraction (−)",     defaultEnabled: true,
+      defaults: { count: 9, min1: 10, max1: 99, min2: 1,  max2: 99 },
+      legend: "If the second number is larger, they're swapped — answers stay non-negative." },
+    { id: "multiplication", label: "Multiplication (×)",  defaultEnabled: false,
+      defaults: { count: 6, min1: 2,  max1: 12, min2: 2,  max2: 12 } },
+    { id: "division",       label: "Division (÷)",        defaultEnabled: false,
+      defaults: { count: 6, min1: 2,  max1: 100, min2: 2, max2: 10 },
+      labels: { num1: "Dividend", num2: "Divisor" },
+      legend: "Problems are exact (no remainder). Divisor must be at least 1." }
+  ];
+
+  function buildOpCard(op) {
+    const labels = op.labels || { num1: "First number", num2: "Second number" };
+    return `
+      <div class="card op" data-op="${op.id}" data-enabled="${op.defaultEnabled}">
+        <h2>
+          <input type="checkbox" id="${op.id}-enabled" ${op.defaultEnabled ? "checked" : ""}>
+          <label for="${op.id}-enabled">${op.label}</label>
+        </h2>
+        <div class="body">
+          <div class="count-row">
+            <div class="label">Count</div>
+            <input type="number" name="count" min="0" max="200" value="${op.defaults.count}">
+            <div></div>
+          </div>
+          <div class="row">
+            <div class="label">${labels.num1}</div>
+            <div class="field"><span>min</span><input type="number" name="min1" min="0" max="9999" value="${op.defaults.min1}"></div>
+            <div class="field"><span>max</span><input type="number" name="max1" min="0" max="9999" value="${op.defaults.max1}"></div>
+          </div>
+          <div class="row">
+            <div class="label">${labels.num2}</div>
+            <div class="field"><span>min</span><input type="number" name="min2" min="0" max="9999" value="${op.defaults.min2}"></div>
+            <div class="field"><span>max</span><input type="number" name="max2" min="0" max="9999" value="${op.defaults.max2}"></div>
+          </div>
+          ${op.legend ? `<p class="legend">${op.legend}</p>` : ""}
+        </div>
+      </div>`;
+  }
+
+  document.getElementById("ops").innerHTML = OPS.map(buildOpCard).join("");
+
+  /* -------- toggle expand/collapse -------- */
+  document.querySelectorAll(".card.op").forEach(card => {
+    const cb = card.querySelector("input[type=checkbox]");
+    const update = () => {
+      card.dataset.enabled = cb.checked ? "true" : "false";
+      card.querySelectorAll("input[type=number]").forEach(i => i.disabled = !cb.checked);
+    };
+    cb.addEventListener("change", update);
+    update();
+  });
+
+  /* -------- payload + request helpers -------- */
+  function readOp(opId) {
+    const card = document.querySelector(`.card.op[data-op="${opId}"]`);
+    const get = n => Number(card.querySelector(`input[name="${n}"]`).value || 0);
+    return {
+      enabled: document.getElementById(opId + "-enabled").checked,
+      count: get("count"),
+      min1: get("min1"),
+      max1: get("max1"),
+      min2: get("min2"),
+      max2: get("max2"),
+    };
+  }
+
+  function readPayload() {
+    return {
+      title: document.getElementById("title").value.trim() || "Math Practice",
+      include_answer_key: document.getElementById("includeKey").checked,
+      addition: readOp("addition"),
+      subtraction: readOp("subtraction"),
+      multiplication: readOp("multiplication"),
+      division: readOp("division"),
+    };
+  }
+
+  function opLabelFromLoc(loc) {
+    // loc looks like ["body", "addition", "max1"] for pydantic errors
+    if (!Array.isArray(loc)) return "";
+    const opMap = { addition: "Addition", subtraction: "Subtraction",
+                    multiplication: "Multiplication", division: "Division" };
+    return loc.map(p => opMap[p] || p).filter(p => p !== "body").join(" → ");
+  }
+
+  function formatErrors(detail) {
+    // FastAPI sends string for HTTPException, list of {loc,msg} for validation
+    if (typeof detail === "string") return detail;
+    if (Array.isArray(detail)) {
+      const items = detail.map(e => {
+        const loc = opLabelFromLoc(e.loc);
+        let msg = e.msg || "Invalid value";
+        // pydantic prefixes value_errors with "Value error, " — trim that
+        msg = msg.replace(/^Value error,\s*/i, "");
+        return loc ? `${loc}: ${msg}` : msg;
+      });
+      if (items.length === 1) return items[0];
+      return `<ul>${items.map(i => `<li>${i}</li>`).join("")}</ul>`;
+    }
+    return "Request failed.";
+  }
+
+  /* -------- preview + download -------- */
+  const statusEl = document.getElementById("status");
+  const previewBtn = document.getElementById("previewBtn");
+  const downloadBtn = document.getElementById("downloadBtn");
+  const placeholder = document.getElementById("placeholder");
+  const frame = document.getElementById("previewFrame");
+
+  function setStatus(msg, kind) {
+    statusEl.className = "status" + (kind ? " " + kind : "");
+    statusEl.innerHTML = msg || "";
+  }
+
+  async function callApi(path) {
+    const payload = readPayload();
+    const res = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      let body = null;
+      try { body = await res.json(); } catch (_) {}
+      const message = body ? formatErrors(body.detail) : ("HTTP " + res.status);
+      const err = new Error(message);
+      err.__html = true;
+      throw err;
+    }
+    return res;
+  }
+
+  previewBtn.addEventListener("click", async () => {
+    previewBtn.disabled = true;
+    downloadBtn.disabled = true;
+    setStatus("Building preview…");
+    try {
+      const res = await callApi("/api/preview");
+      const html = await res.text();
+      frame.srcdoc = html;
+      frame.style.display = "block";
+      placeholder.style.display = "none";
+      setStatus("Preview updated — click <strong>Download .docx</strong> when you're happy.", "success");
+      downloadBtn.disabled = false;
+    } catch (err) {
+      setStatus(err.__html ? err.message : ("Error: " + err.message), "error");
+    } finally {
+      previewBtn.disabled = false;
+    }
+  });
+
+  downloadBtn.addEventListener("click", async () => {
+    downloadBtn.disabled = true;
+    setStatus("Generating .docx…");
+    try {
+      const res = await callApi("/api/generate");
+      const blob = await res.blob();
+      const dispo = res.headers.get("content-disposition") || "";
+      const m = dispo.match(/filename="?([^"]+)"?/);
+      const filename = m ? m[1] : "worksheet.docx";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setStatus("Downloaded " + filename, "success");
+    } catch (err) {
+      setStatus(err.__html ? err.message : ("Error: " + err.message), "error");
+    } finally {
+      downloadBtn.disabled = false;
+    }
+  });
+
+  // re-disable Download whenever inputs change after a successful preview,
+  // so the teacher always re-previews their latest settings before downloading
+  document.getElementById("form").addEventListener("input", () => {
+    if (!downloadBtn.disabled) {
+      downloadBtn.disabled = true;
+      setStatus("Settings changed — click Preview to refresh.");
+    }
+  });
+</script>
+</body>
+</html>

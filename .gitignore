@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# uv
+.uv-cache/
+uv.lock
+
+# editors
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# generated worksheets (regenerate as needed)
+*.docx
+*.pdf
