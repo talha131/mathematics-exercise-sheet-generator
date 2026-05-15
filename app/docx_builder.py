@@ -116,6 +116,20 @@ def _set_cell_border(cell: _Cell, **edges) -> None:
     _insert_in_order(tc_pr, tc_borders, _TC_PR_ORDER)
 
 
+_TR_PR_ORDER = [
+    "cnfStyle", "divId", "gridBefore", "gridAfter", "wBefore", "wAfter",
+    "cantSplit", "trHeight", "tblHeader", "tblCellSpacing", "jc", "hidden",
+    "ins", "del", "trPrChange",
+]
+
+
+def _set_row_cant_split(row) -> None:
+    """Stop Word from splitting this row's cells across a page break."""
+    tr_pr = row._tr.get_or_add_trPr()
+    cant = OxmlElement("w:cantSplit")
+    _insert_in_order(tr_pr, cant, _TR_PR_ORDER)
+
+
 def _set_cell_margins(cell: _Cell, top=20, bottom=20, left=40, right=40) -> None:
     """Set cell internal margins (in DXA: 1440 = 1 inch). Small but readable."""
     tc_pr = cell._tc.get_or_add_tcPr()
@@ -183,6 +197,10 @@ def _add_section_heading(doc: _Document, text: str) -> None:
     p = doc.add_paragraph()
     p.paragraph_format.space_before = Pt(8)
     p.paragraph_format.space_after = Pt(4)
+    # don't orphan the heading at the bottom of a page —
+    # keep it with the first row of problems beneath it
+    p.paragraph_format.keep_with_next = True
+    p.paragraph_format.keep_together = True
     run = p.add_run(text)
     run.bold = True
     run.font.size = Pt(13)
@@ -345,6 +363,10 @@ def _add_problem_grid(doc: _Document, problems: list[Problem], digit_cols: int,
     for col in outer.columns:
         for c in col.cells:
             c.width = Mm(cell_mm)
+
+    # critical: keep each row's three problem cards together on the same page
+    for r in outer.rows:
+        _set_row_cant_split(r)
 
     num = start_number
     for i, p in enumerate(problems):
