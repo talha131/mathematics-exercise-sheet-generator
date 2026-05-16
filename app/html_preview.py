@@ -18,24 +18,56 @@ from html import escape
 
 from .generator import GenerationRequest, Problem, generate, max_digits
 
-DIGIT_CELL_MM = 9
-DIGIT_ROW_MM = 10
-CARRY_ROW_MM = 5
-
-# Page geometry — match the PDF output.
+# Page geometry.
 PAGE_HEIGHT_MM = 297
+PAGE_WIDTH_MM = 210
 PAGE_MARGIN_MM = 15
-PAGE_CONTENT_H = PAGE_HEIGHT_MM - 2 * PAGE_MARGIN_MM  # 267
-PROBLEMS_PER_ROW = 3
+PAGE_CONTENT_H = PAGE_HEIGHT_MM - 2 * PAGE_MARGIN_MM    # 267
+PAGE_CONTENT_W = PAGE_WIDTH_MM - 2 * PAGE_MARGIN_MM     # 180
+COLUMN_GAP_MM = 6
 
-# Approximate block heights (mm). Tuned by inspecting the rendered PDF so
-# the preview shows the same number of rows per page that Word produces.
-# Bumping these conservatively is safer (over-estimate = preview shows a page
-# break slightly earlier than Word, never later, so the printed result fits).
+# Caps / defaults for digit cells. The actual values are computed adaptively
+# so a card with N digit columns always fits inside its outer grid cell.
+MAX_DIGIT_CELL_MM = 9
+MIN_DIGIT_CELL_MM = 6
+DEFAULT_FONT_PT = 18
+CARRY_ROW_RATIO = 0.5     # carry row is half the height of a regular row
+
+
+def _layout_for(digit_cols: int) -> tuple[int, float, float, int]:
+    """
+    Pick how many problem cards go in a row and how big each digit cell is,
+    given the maximum digit-column count any problem needs.
+
+    Returns (problems_per_row, cell_mm, row_mm, font_pt).
+
+    The card width is (digit_cols + 1) × cell_mm (+1 for the operator column).
+    We size the cells so that problems_per_row cards fit inside the page's
+    content width with COLUMN_GAP_MM between them; we drop from 3 cards/row
+    to 2 cards/row once even a 6mm cell wouldn't fit at 3 cards/row.
+    """
+    for per_row in (3, 2, 1):
+        outer = (PAGE_CONTENT_W - (per_row - 1) * COLUMN_GAP_MM) / per_row
+        # leave ~1 mm slack so border-collapse doesn't push the card past its
+        # grid cell on subpixel-rendering browsers
+        cell = (outer - 1) / (digit_cols + 1)
+        if cell >= MIN_DIGIT_CELL_MM:
+            cell = min(MAX_DIGIT_CELL_MM, cell)
+            row = cell * (10 / 9)              # keep the same aspect as 9 × 10mm
+            font = max(11, round(cell * 2))    # 9mm → 18pt, 8mm → 16pt, 7mm → 14pt
+            return per_row, cell, row, font
+    # extremely wide worksheets fall back to 1-per-row with the smallest cell
+    cell = MIN_DIGIT_CELL_MM
+    return 1, cell, cell * (10 / 9), max(11, round(cell * 2))
+
+# Block heights (mm) for the standard 9mm-cell layout. They scale linearly
+# with row_mm in `_problem_height` below.
 H_HEADER_BLOCK = 24         # Name/Date/Score + title (first page only)
 H_SECTION_HEADING = 11
-H_VERTICAL_ROW = 67         # row of three boxed-digit cards (carry + 2 operands + answer + margins)
-H_DIVISION_ROW = 38         # row of three horizontal division cards
+H_VERTICAL_ROW_AT_9MM = 67  # carry + 2 operands + answer row + margins
+H_DIVISION_ROW_AT_9MM = 38
+H_MUL_2DIG_AT_9MM = 90      # multi-digit mul with 2-digit operand2
+H_MUL_PER_EXTRA_AT_9MM = 11 # extra height per additional digit beyond 2-digit
 H_ANSWER_KEY_TITLE = 16
 H_ANSWER_KEY_LINE = 6
 
@@ -130,58 +162,63 @@ def _render_multidigit_multiplication(p: Problem, number: int, digit_cols: int) 
     )
 
 
-def _render_division(p: Problem, number: int) -> str:
-    box_w = max(2, len(str(p.answer)) + 1) * DIGIT_CELL_MM
+def _render_division(p: Problem, number: int, cell_mm: float) -> str:
+    box_w = max(2, len(str(p.answer)) + 1) * cell_mm
     return (
         "<div class='card division'>"
         f"<div class='num'>{number}.</div>"
         "<div class='div-row'>"
         f"<span class='div-text'>{p.operand1} ÷ {p.operand2} =</span>"
-        f"<span class='ans-box' style='width:{box_w}mm;'></span>"
+        f"<span class='ans-box' style='width:{box_w:.2f}mm;'></span>"
         "</div>"
         "</div>"
     )
 
 
-def _render_row(items: list[tuple[int, Problem]], digit_cols: int) -> str:
-    """Render one row of (up to PROBLEMS_PER_ROW) problem cards inside a grid container."""
+def _render_row(
+    items: list[tuple[int, Problem]],
+    digit_cols: int,
+    per_row: int,
+    cell_mm: float,
+) -> str:
+    """Render one row of (up to per_row) problem cards inside a grid container."""
     parts = []
     for number, p in items:
         if p.operator == "÷":
-            parts.append(_render_division(p, number))
+            parts.append(_render_division(p, number, cell_mm))
         elif p.operator == "×" and len(str(p.operand2)) >= 2:
             parts.append(_render_multidigit_multiplication(p, number, digit_cols))
         else:
             parts.append(_render_vertical(p, number, digit_cols))
-    # pad with invisible spacers so each row keeps PROBLEMS_PER_ROW columns
-    for _ in range(PROBLEMS_PER_ROW - len(items)):
+    # pad with invisible spacers so each row keeps per_row columns
+    for _ in range(per_row - len(items)):
         parts.append("<div class='card spacer'></div>")
     return f"<div class='grid'>{''.join(parts)}</div>"
 
 
 # ---------- pagination ----------
 
-def _problem_height(p: Problem) -> int:
+def _problem_height(p: Problem, row_mm: float) -> int:
+    scale = row_mm / 10.0
     if p.operator == "÷":
-        return H_DIVISION_ROW
+        return round(H_DIVISION_ROW_AT_9MM * scale)
     if p.operator == "×" and len(str(p.operand2)) >= 2:
-        # Tuned against the actual PDF output: a 2-digit × 2-digit card with
-        # its 2 partial-product rows + final answer comes out to ~85-90mm in
-        # Word, so 2 fit on the first page (under the header + section heading)
-        # rather than 3. Each additional partial row adds ~11mm.
         op2_digits = len(str(p.operand2))
-        return 90 + (op2_digits - 2) * 11
-    return H_VERTICAL_ROW
+        base = H_MUL_2DIG_AT_9MM + (op2_digits - 2) * H_MUL_PER_EXTRA_AT_9MM
+        return round(base * scale)
+    return round(H_VERTICAL_ROW_AT_9MM * scale)
 
 
-def _row_height(items: list[tuple[int, Problem]]) -> int:
-    # a row of three cards is as tall as the tallest card in it
-    return max(_problem_height(p) for _, p in items)
+def _row_height(items: list[tuple[int, Problem]], row_mm: float) -> int:
+    # a row of cards is as tall as the tallest card in it
+    return max(_problem_height(p, row_mm) for _, p in items)
 
 
 def _paginate(
     groups: dict[str, list[Problem]],
     numbering: dict[int, int],
+    per_row: int,
+    row_mm: float,
 ) -> list[list[dict]]:
     """
     Walk through sections row-by-row, emitting page boundaries when adding the
@@ -202,11 +239,11 @@ def _paginate(
         problems = groups[op]
         if not problems:
             continue
-        n_rows = (len(problems) + PROBLEMS_PER_ROW - 1) // PROBLEMS_PER_ROW
+        n_rows = (len(problems) + per_row - 1) // per_row
         for ri in range(n_rows):
-            slice_ = problems[ri * PROBLEMS_PER_ROW: (ri + 1) * PROBLEMS_PER_ROW]
+            slice_ = problems[ri * per_row: (ri + 1) * per_row]
             items = [(numbering[id(p)], p) for p in slice_]
-            row_h = _row_height(items)
+            row_h = _row_height(items, row_mm)
             needs_heading = (ri == 0)
             extra = H_SECTION_HEADING if needs_heading else 0
             if current and used + extra + row_h > PAGE_CONTENT_H:
@@ -250,17 +287,25 @@ def _group(
 
 # ---------- CSS ----------
 
-CSS = f"""
-  /* Same HTML serves both the in-browser preview and WeasyPrint PDF output.
-     @page rules + page-break rules apply when WeasyPrint renders, while
-     @media screen rules give the iframe its "pages on a desk" look. */
+def _build_css(per_row: int, cell_mm: float, row_mm: float, font_pt: int) -> str:
+    """
+    CSS is parameterized on the chosen layout so the same template works for
+    a 3-cards-per-row addition worksheet AND a 2-cards-per-row 3-digit-×-3-digit
+    multiplication worksheet. Each digit cell is `cell_mm` wide, operand/answer
+    rows are `row_mm` tall, digits inside boxes render at `font_pt` points.
+    """
+    carry_mm = max(3.5, cell_mm * 0.55)        # thin carry row
+    grid_cols = " ".join(["1fr"] * per_row)
+    div_font_pt = max(12, font_pt - 2)
+    return f"""
   @page {{ size: A4; margin: 0; }}
   body {{
     margin: 0; font-family: Arial, "Helvetica Neue", sans-serif; color: #111;
   }}
   .page {{
     position: relative;
-    width: 210mm; min-height: 297mm; padding: {PAGE_MARGIN_MM}mm;
+    width: {PAGE_WIDTH_MM}mm; min-height: {PAGE_HEIGHT_MM}mm;
+    padding: {PAGE_MARGIN_MM}mm;
     background: white; box-sizing: border-box; margin: 0 auto;
     page-break-after: always; break-after: page;
   }}
@@ -269,10 +314,7 @@ CSS = f"""
   }}
   @media screen {{
     body {{ background: #e8e9eb; padding: 16px; }}
-    .page {{
-      box-shadow: 0 1px 4px rgba(0,0,0,0.18); margin-bottom: 18px;
-    }}
-    /* hide the page tag in print (it's only useful in the live preview) */
+    .page {{ box-shadow: 0 1px 4px rgba(0,0,0,0.18); margin-bottom: 18px; }}
   }}
   @media print {{
     .page-tag {{ display: none; }}
@@ -289,35 +331,31 @@ CSS = f"""
   .section-h {{ font-size: 13pt; font-weight: 700; margin: 14pt 0 8pt; }}
   .section-h:first-child {{ margin-top: 0; }}
   .grid {{
-    display: grid; grid-template-columns: 1fr 1fr 1fr;
-    column-gap: 6mm; row-gap: 6mm;
+    display: grid; grid-template-columns: {grid_cols};
+    column-gap: {COLUMN_GAP_MM}mm; row-gap: 6mm;
     margin-bottom: 0;
   }}
-  /* card footprints chosen so 3 vertical cards + section heading ≈ 232mm
-     (matches the ~67mm-per-row footprint observed in the rendered PDF) */
-  .card {{ min-height: 55mm; }}
-  .card.division {{ min-height: 28mm; }}
-  /* multi-digit multiplication: taller card with partial-product rows */
-  .card.mul {{ min-height: 80mm; }}
   .card .num {{ font-size: 11pt; font-weight: 700; margin-bottom: 3pt; }}
-  .card.spacer {{ visibility: hidden; min-height: 0; }}
+  .card.spacer {{ visibility: hidden; }}
   table.vert {{ border-collapse: collapse; table-layout: fixed; }}
   table.vert td {{
-    width: {DIGIT_CELL_MM}mm; height: {DIGIT_ROW_MM}mm;
+    width: {cell_mm:.3f}mm; height: {row_mm:.3f}mm;
     text-align: center; vertical-align: middle; padding: 0;
-    font-size: 18pt; line-height: 1; box-sizing: border-box;
+    font-size: {font_pt}pt; line-height: 1; box-sizing: border-box;
   }}
   table.vert td.op {{ font-weight: 700; }}
-  table.vert tr.r-carry td {{ height: {CARRY_ROW_MM}mm; }}
+  table.vert tr.r-carry td {{ height: {carry_mm:.3f}mm; }}
   table.vert tr.r-carry td.carry {{ border: 1px dashed #888; }}
   table.vert tr.rule td {{ border-bottom: 1.5pt solid #000; }}
   table.vert tr.r-ans td.ans {{ border: 1pt solid #000; }}
-  /* partial-product rows for multi-digit multiplication */
   table.vert tr.r-partial td.pp-box {{ border: 1pt solid #000; }}
   table.vert tr.r-partial td.pp-empty {{ /* no border */ }}
-  .div-row {{ display: flex; align-items: center; gap: 4mm; font-size: 16pt; }}
+  .div-row {{
+    display: flex; align-items: center; gap: 4mm;
+    font-size: {div_font_pt}pt;
+  }}
   .div-row .ans-box {{
-    display: inline-block; height: {DIGIT_ROW_MM}mm;
+    display: inline-block; height: {row_mm:.3f}mm;
     border: 1pt solid #000;
   }}
   .ak-title {{ text-align: center; font-size: 18pt; font-weight: 700; margin: 0 0 12pt; }}
@@ -340,11 +378,11 @@ def _render_header() -> str:
     )
 
 
-def _render_block(block: dict, digit_cols: int) -> str:
+def _render_block(block: dict, digit_cols: int, per_row: int, cell_mm: float) -> str:
     if block["type"] == "section_h":
         return f"<div class='section-h'>{escape(block['label'])}</div>"
     if block["type"] == "row":
-        return _render_row(block["items"], digit_cols)
+        return _render_row(block["items"], digit_cols, per_row, cell_mm)
     return ""
 
 
@@ -357,8 +395,10 @@ def render_preview(req: GenerationRequest) -> str:
     groups, ordered, numbering = _group(problems)
     vertical = [p for p in problems if p.operator != "÷"]
     digit_cols = max_digits(vertical) if vertical else 1
+    per_row, cell_mm, row_mm, font_pt = _layout_for(digit_cols)
+    css = _build_css(per_row, cell_mm, row_mm, font_pt)
 
-    pages = _paginate(groups, numbering)
+    pages = _paginate(groups, numbering, per_row, row_mm)
     answer_key_pages = (
         _paginate_answer_key(ordered) if req.include_answer_key else []
     )
@@ -372,7 +412,7 @@ def render_preview(req: GenerationRequest) -> str:
             parts.append(_render_header())
             parts.append(f"<div class='title'>{title}</div>")
         for block in page_blocks:
-            parts.append(_render_block(block, digit_cols))
+            parts.append(_render_block(block, digit_cols, per_row, cell_mm))
         rendered_pages.append(f"<div class='page'>{''.join(parts)}</div>")
 
     base_page = len(pages)
@@ -404,7 +444,7 @@ def render_preview(req: GenerationRequest) -> str:
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"><title>{title} — Preview</title>
-<style>{CSS}</style></head>
+<style>{css}</style></head>
 <body>
 {"".join(rendered_pages)}
 </body></html>
@@ -412,9 +452,12 @@ def render_preview(req: GenerationRequest) -> str:
 
 
 def _empty_html(title: str) -> str:
+    # use the default layout for the empty page — nothing to size against
+    _, cell_mm, row_mm, font_pt = _layout_for(3)
+    css = _build_css(3, cell_mm, row_mm, font_pt)
     return (
         f"<!DOCTYPE html><html><head><meta charset='utf-8'><title>{title}</title>"
-        f"<style>{CSS}</style></head><body><div class='page'>"
+        f"<style>{css}</style></head><body><div class='page'>"
         "<p>No problems generated. Enable at least one operation and set a count.</p>"
         "</div></body></html>"
     )
