@@ -4,7 +4,7 @@ FastAPI backend for the math exercise sheet generator.
 Endpoints:
     GET  /                   → serves the single-page form (static/index.html)
     POST /api/preview        → returns an HTML preview of the worksheet
-    POST /api/generate       → returns a downloadable .docx file
+    POST /api/generate       → returns a downloadable, print-ready PDF
 """
 
 from __future__ import annotations
@@ -18,9 +18,9 @@ from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
-from .docx_builder import build_docx
 from .generator import GenerationRequest, OperationConfig
 from .html_preview import render_preview
+from .pdf_builder import build_pdf
 
 app = FastAPI(title="Math Exercise Sheet Generator")
 
@@ -129,7 +129,7 @@ def _to_request(p: GeneratePayload) -> GenerationRequest:
 def _safe_filename(title: str) -> str:
     base = re.sub(r"[^A-Za-z0-9_-]+", "_", title).strip("_") or "worksheet"
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return f"{base}_{stamp}.docx"
+    return f"{base}_{stamp}.pdf"
 
 
 @app.post("/api/preview", response_class=HTMLResponse)
@@ -143,16 +143,14 @@ def preview(payload: GeneratePayload) -> HTMLResponse:
 def generate(payload: GeneratePayload) -> Response:
     _validate_business_rules(payload)
     try:
-        data = build_docx(_to_request(payload))
+        data = build_pdf(_to_request(payload))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
     filename = _safe_filename(payload.title)
     return Response(
         content=data,
-        media_type=(
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        ),
+        media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 

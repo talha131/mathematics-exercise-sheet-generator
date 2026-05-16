@@ -226,7 +226,7 @@
 
       <div class="actions">
         <button type="button" id="previewBtn">Preview worksheet</button>
-        <button type="button" id="downloadBtn" class="secondary" disabled>Download .docx</button>
+        <button type="button" id="downloadBtn" class="secondary" disabled>Download PDF</button>
       </div>
       <div id="status" class="status"></div>
     </form>
@@ -388,7 +388,7 @@
       frame.srcdoc = html;
       frame.style.display = "block";
       placeholder.style.display = "none";
-      setStatus("Preview updated — click <strong>Download .docx</strong> when you're happy.", "success");
+      setStatus("Preview updated — click <strong>Download PDF</strong> when you're happy.", "success");
       downloadBtn.disabled = false;
     } catch (err) {
       setStatus(err.__html ? err.message : ("Error: " + err.message), "error");
@@ -399,13 +399,13 @@
 
   downloadBtn.addEventListener("click", async () => {
     downloadBtn.disabled = true;
-    setStatus("Generating .docx…");
+    setStatus("Generating PDF…");
     try {
       const res = await callApi("/api/generate");
       const blob = await res.blob();
       const dispo = res.headers.get("content-disposition") || "";
       const m = dispo.match(/filename="?([^"]+)"?/);
-      const filename = m ? m[1] : "worksheet.docx";
+      const filename = m ? m[1] : "worksheet.pdf";
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;

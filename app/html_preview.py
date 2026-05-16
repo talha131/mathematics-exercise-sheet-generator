@@ -1,10 +1,15 @@
 """
-HTML preview of the worksheet.
+HTML preview / print source for the worksheet.
 
-Produces a standalone HTML page that visually mirrors the .docx output. The
-preview is paginated server-side so the teacher sees the same page breaks
-they'll get when printing: each rendered A4 page is its own `<div class='page'>`
-and rows of problems are never split across page boundaries.
+This module produces a single HTML document that serves two purposes:
+- in-browser preview (the iframe in the form page),
+- input to WeasyPrint, which converts it directly to the PDF the teacher
+  downloads.
+
+The HTML is paginated server-side into `<div class='page'>` blocks of fixed
+A4 dimensions. @media print rules turn those blocks into actual page breaks
+when WeasyPrint runs; the screen styles add box-shadow and gutters so the
+same DOM reads as "pages on a desk" in the iframe.
 """
 
 from __future__ import annotations
@@ -17,13 +22,13 @@ DIGIT_CELL_MM = 9
 DIGIT_ROW_MM = 10
 CARRY_ROW_MM = 5
 
-# Page geometry — match the .docx output.
+# Page geometry — match the PDF output.
 PAGE_HEIGHT_MM = 297
 PAGE_MARGIN_MM = 15
 PAGE_CONTENT_H = PAGE_HEIGHT_MM - 2 * PAGE_MARGIN_MM  # 267
 PROBLEMS_PER_ROW = 3
 
-# Approximate block heights (mm). Tuned by inspecting the rendered .docx so
+# Approximate block heights (mm). Tuned by inspecting the rendered PDF so
 # the preview shows the same number of rows per page that Word produces.
 # Bumping these conservatively is safer (over-estimate = preview shows a page
 # break slightly earlier than Word, never later, so the printed result fits).
@@ -74,24 +79,34 @@ def _render_vertical(p: Problem, number: int, digit_cols: int) -> str:
 
 
 def _render_multidigit_multiplication(p: Problem, number: int, digit_cols: int) -> str:
-    """Multi-digit × multi-digit with N partial-product rows and a final answer."""
+    """Multi-digit × multi-digit with N partial-product rows and a final answer.
+
+    Each partial product gets its OWN width (the digit count of operand1 × that
+    digit). Using a per-partial width prevents the leftmost partial from being
+    forced into more columns than fit and overflowing into the operator column —
+    e.g. 250 × 226's partials are 1500 (4-wide), 500 (3-wide), 500 (3-wide).
+    """
     op2_str = str(p.operand2)
     op2_digits = len(op2_str)
-    max_partial = max(
-        (len(str(p.operand1 * int(d))) for d in op2_str if int(d) > 0),
-        default=1,
-    )
+
+    # rightmost-first: op2_str[-1] is the units digit (k=0), op2_str[0] is the
+    # most-significant digit (k=op2_digits-1). The k-th partial product is
+    # operand1 × digit_k and is shifted left by k columns.
+    partials = []
+    for k in range(op2_digits):
+        digit = int(op2_str[-(k + 1)])
+        product = p.operand1 * digit
+        width = len(str(product)) if product != 0 else 1
+        partials.append((k, width))
 
     op1_cells = _digit_cells(p.operand1, digit_cols)
     op2_cells = _digit_cells(p.operand2, digit_cols)
 
-    # build partial-product rows: boxes occupy `max_partial` cells, right-edge
-    # at column (digit_cols - k); blank cells outside that span
     partial_rows = []
-    for k in range(op2_digits):
+    for idx, (k, width) in enumerate(partials):
         right_col = digit_cols - k                       # 1-indexed digit col
-        left_col = right_col - max_partial + 1
-        is_last = (k == op2_digits - 1)
+        left_col = right_col - width + 1
+        is_last = (idx == len(partials) - 1)
         row_class = "r-partial rule" if is_last else "r-partial"
         cells = []
         for ci in range(1, digit_cols + 1):
@@ -150,7 +165,7 @@ def _problem_height(p: Problem) -> int:
     if p.operator == "÷":
         return H_DIVISION_ROW
     if p.operator == "×" and len(str(p.operand2)) >= 2:
-        # Tuned against the actual .docx output: a 2-digit × 2-digit card with
+        # Tuned against the actual PDF output: a 2-digit × 2-digit card with
         # its 2 partial-product rows + final answer comes out to ~85-90mm in
         # Word, so 2 fit on the first page (under the header + section heading)
         # rather than 3. Each additional partial row adds ~11mm.
@@ -236,15 +251,31 @@ def _group(
 # ---------- CSS ----------
 
 CSS = f"""
+  /* Same HTML serves both the in-browser preview and WeasyPrint PDF output.
+     @page rules + page-break rules apply when WeasyPrint renders, while
+     @media screen rules give the iframe its "pages on a desk" look. */
+  @page {{ size: A4; margin: 0; }}
   body {{
-    background: #e8e9eb; margin: 0; padding: 16px;
-    font-family: Arial, "Helvetica Neue", sans-serif; color: #111;
+    margin: 0; font-family: Arial, "Helvetica Neue", sans-serif; color: #111;
   }}
   .page {{
     position: relative;
     width: 210mm; min-height: 297mm; padding: {PAGE_MARGIN_MM}mm;
-    background: white; box-sizing: border-box; margin: 0 auto 18px;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+    background: white; box-sizing: border-box; margin: 0 auto;
+    page-break-after: always; break-after: page;
+  }}
+  .page:last-child {{
+    page-break-after: auto; break-after: auto;
+  }}
+  @media screen {{
+    body {{ background: #e8e9eb; padding: 16px; }}
+    .page {{
+      box-shadow: 0 1px 4px rgba(0,0,0,0.18); margin-bottom: 18px;
+    }}
+    /* hide the page tag in print (it's only useful in the live preview) */
+  }}
+  @media print {{
+    .page-tag {{ display: none; }}
   }}
   .page-tag {{
     position: absolute; top: 6px; right: 10px;
@@ -263,7 +294,7 @@ CSS = f"""
     margin-bottom: 0;
   }}
   /* card footprints chosen so 3 vertical cards + section heading ≈ 232mm
-     (matches the ~67mm-per-row footprint observed in the rendered .docx) */
+     (matches the ~67mm-per-row footprint observed in the rendered PDF) */
   .card {{ min-height: 55mm; }}
   .card.division {{ min-height: 28mm; }}
   /* multi-digit multiplication: taller card with partial-product rows */
