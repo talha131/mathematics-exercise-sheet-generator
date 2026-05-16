@@ -313,6 +313,121 @@ def _build_vertical_problem(parent_cell: _Cell, p: Problem, number: int, digit_c
             _digit_runs(cell, "", size_pt=18)
 
 
+def _build_multidigit_multiplication(
+    parent_cell: _Cell, p: Problem, number: int, digit_cols: int
+) -> None:
+    """
+    Render a multi-digit × multi-digit problem with partial-product rows.
+
+    Layout (for 2-digit × 2-digit):
+
+        ┌──┬──┬──┬──┐
+        │  │  │ a│ b│   ← operand 1
+        │ ×│  │ c│ d│   ← operand 2 (rule below)
+        ├──┼──┼──┼──┤
+        │  │  │ □│ □│   ← box row for ab × d  (k=0, no shift)
+        │  │ □│ □│  │   ← box row for ab × c  (k=1, shifted one left, rule below)
+        ├──┼──┼──┼──┤
+        │  │ □│ □│ □│   ← final answer
+        └──┴──┴──┴──┘
+
+    The box widths inside the partial rows are tuned to (operand1 × 9)'s
+    digit count, which is the widest possible value of any single-digit
+    partial product. Empty cells (outside the box span) get no borders.
+    """
+    op2_str = str(p.operand2)
+    op2_digits = len(op2_str)
+    # widest partial product across the digits of operand2 — sized per-problem
+    # so 99 × 11 gives 2-wide boxes, 99 × 12 gives 3-wide boxes, etc.
+    max_partial_digits = max(
+        (len(str(p.operand1 * int(d))) for d in op2_str if int(d) > 0),
+        default=1,
+    )
+    n_rows = 2 + op2_digits + 1   # op1, op2, N partials, final answer
+    total_cols = digit_cols + 1
+
+    # problem number
+    num_p = parent_cell.add_paragraph()
+    num_p.paragraph_format.space_before = Pt(0)
+    num_p.paragraph_format.space_after = Pt(2)
+    num_run = num_p.add_run(f"{number}.")
+    num_run.bold = True
+    num_run.font.size = Pt(11)
+
+    inner = parent_cell.add_table(rows=n_rows, cols=total_cols)
+    inner.alignment = WD_TABLE_ALIGNMENT.LEFT
+    inner.autofit = False
+
+    for col in inner.columns:
+        for c in col.cells:
+            c.width = Mm(DIGIT_CELL_MM)
+    for row in inner.rows:
+        _set_row_height(row, DIGIT_ROW_HEIGHT_MM)
+
+    op1_row = inner.rows[0]
+    op2_row = inner.rows[1]
+    partial_rows = list(inner.rows[2:2 + op2_digits])
+    final_row = inner.rows[-1]
+
+    # ---- operand rows (right-aligned digits, no borders, rule under op2) ----
+    op1_digits_str = list(str(p.operand1))
+    op2_digits_str = list(str(p.operand2))
+    op1_cells = [""] * (digit_cols - len(op1_digits_str)) + op1_digits_str
+    op2_cells = [""] * (digit_cols - len(op2_digits_str)) + op2_digits_str
+
+    for ci, cell in enumerate(op1_row.cells):
+        _set_cell_margins(cell)
+        _set_cell_border(cell, top=_no_border(), left=_no_border(),
+                         bottom=_no_border(), right=_no_border())
+        _digit_runs(cell, "" if ci == 0 else op1_cells[ci - 1], size_pt=18)
+
+    for ci, cell in enumerate(op2_row.cells):
+        _set_cell_margins(cell)
+        _set_cell_border(cell, top=_no_border(), left=_no_border(),
+                         bottom=_solid(sz=12), right=_no_border())
+        _digit_runs(
+            cell,
+            "×" if ci == 0 else op2_cells[ci - 1],
+            size_pt=18,
+            bold=(ci == 0),
+        )
+
+    # ---- partial product rows ----
+    for k, prow in enumerate(partial_rows):
+        # k = 0 → bottom-most partial → no shift; k = N-1 → top-most partial
+        right_col = digit_cols - k
+        left_col = right_col - max_partial_digits + 1
+        is_last = (k == len(partial_rows) - 1)
+        bottom = _solid(sz=12) if is_last else _no_border()
+        for ci, cell in enumerate(prow.cells):
+            _set_cell_margins(cell)
+            digit_col_idx = ci  # 1..digit_cols are digit columns; 0 is operator col
+            in_box = (digit_col_idx != 0 and left_col <= digit_col_idx <= right_col)
+            if in_box:
+                _set_cell_border(cell,
+                                 top=_solid(sz=8), left=_solid(sz=8),
+                                 bottom=_solid(sz=12) if is_last else _solid(sz=8),
+                                 right=_solid(sz=8))
+            else:
+                _set_cell_border(cell,
+                                 top=_no_border(), left=_no_border(),
+                                 bottom=bottom, right=_no_border())
+            _digit_runs(cell, "", size_pt=18)
+
+    # ---- final answer row: full-width boxes (skip operator col) ----
+    for ci, cell in enumerate(final_row.cells):
+        _set_cell_margins(cell)
+        if ci == 0:
+            _set_cell_border(cell, top=_no_border(), left=_no_border(),
+                             bottom=_no_border(), right=_no_border())
+            _digit_runs(cell, "", size_pt=18)
+        else:
+            _set_cell_border(cell,
+                             top=_solid(sz=8), left=_solid(sz=8),
+                             bottom=_solid(sz=8), right=_solid(sz=8))
+            _digit_runs(cell, "", size_pt=18)
+
+
 def _build_division_problem(parent_cell: _Cell, p: Problem, number: int) -> None:
     """Simple horizontal division: '12 ÷ 3 =  ⬜' with a bordered answer box."""
     num_p = parent_cell.add_paragraph()
@@ -385,6 +500,8 @@ def _add_problem_grid(doc: _Document, problems: list[Problem], digit_cols: int,
                          bottom=_no_border(), right=_no_border())
         if p.operator == "÷":
             _build_division_problem(cell, p, num)
+        elif p.operator == "×" and len(str(p.operand2)) >= 2:
+            _build_multidigit_multiplication(cell, p, num, digit_cols)
         else:
             _build_vertical_problem(cell, p, num, digit_cols)
         # trailing empty paragraph inside the card for extra vertical breathing room

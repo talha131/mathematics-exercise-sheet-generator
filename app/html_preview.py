@@ -73,6 +73,48 @@ def _render_vertical(p: Problem, number: int, digit_cols: int) -> str:
     )
 
 
+def _render_multidigit_multiplication(p: Problem, number: int, digit_cols: int) -> str:
+    """Multi-digit × multi-digit with N partial-product rows and a final answer."""
+    op2_str = str(p.operand2)
+    op2_digits = len(op2_str)
+    max_partial = max(
+        (len(str(p.operand1 * int(d))) for d in op2_str if int(d) > 0),
+        default=1,
+    )
+
+    op1_cells = _digit_cells(p.operand1, digit_cols)
+    op2_cells = _digit_cells(p.operand2, digit_cols)
+
+    # build partial-product rows: boxes occupy `max_partial` cells, right-edge
+    # at column (digit_cols - k); blank cells outside that span
+    partial_rows = []
+    for k in range(op2_digits):
+        right_col = digit_cols - k                       # 1-indexed digit col
+        left_col = right_col - max_partial + 1
+        is_last = (k == op2_digits - 1)
+        row_class = "r-partial rule" if is_last else "r-partial"
+        cells = []
+        for ci in range(1, digit_cols + 1):
+            in_box = left_col <= ci <= right_col
+            cell_class = "pp-box" if in_box else "pp-empty"
+            cells.append(f"<td class='{cell_class}'></td>")
+        partial_rows.append(
+            f"<tr class='{row_class}'><td class='op'></td>{''.join(cells)}</tr>"
+        )
+
+    return (
+        "<div class='card vertical mul'>"
+        f"<div class='num'>{number}.</div>"
+        "<table class='vert'>"
+        f"<tr class='r-op'><td class='op'></td>{op1_cells}</tr>"
+        f"<tr class='r-op rule'><td class='op'>{escape(p.operator)}</td>{op2_cells}</tr>"
+        f"{''.join(partial_rows)}"
+        f"<tr class='r-ans'><td class='op'></td>{_empty_cells('ans', digit_cols)}</tr>"
+        "</table>"
+        "</div>"
+    )
+
+
 def _render_division(p: Problem, number: int) -> str:
     box_w = max(2, len(str(p.answer)) + 1) * DIGIT_CELL_MM
     return (
@@ -92,6 +134,8 @@ def _render_row(items: list[tuple[int, Problem]], digit_cols: int) -> str:
     for number, p in items:
         if p.operator == "÷":
             parts.append(_render_division(p, number))
+        elif p.operator == "×" and len(str(p.operand2)) >= 2:
+            parts.append(_render_multidigit_multiplication(p, number, digit_cols))
         else:
             parts.append(_render_vertical(p, number, digit_cols))
     # pad with invisible spacers so each row keeps PROBLEMS_PER_ROW columns
@@ -102,8 +146,22 @@ def _render_row(items: list[tuple[int, Problem]], digit_cols: int) -> str:
 
 # ---------- pagination ----------
 
+def _problem_height(p: Problem) -> int:
+    if p.operator == "÷":
+        return H_DIVISION_ROW
+    if p.operator == "×" and len(str(p.operand2)) >= 2:
+        # Tuned against the actual .docx output: a 2-digit × 2-digit card with
+        # its 2 partial-product rows + final answer comes out to ~85-90mm in
+        # Word, so 2 fit on the first page (under the header + section heading)
+        # rather than 3. Each additional partial row adds ~11mm.
+        op2_digits = len(str(p.operand2))
+        return 90 + (op2_digits - 2) * 11
+    return H_VERTICAL_ROW
+
+
 def _row_height(items: list[tuple[int, Problem]]) -> int:
-    return H_DIVISION_ROW if items[0][1].operator == "÷" else H_VERTICAL_ROW
+    # a row of three cards is as tall as the tallest card in it
+    return max(_problem_height(p) for _, p in items)
 
 
 def _paginate(
@@ -208,6 +266,8 @@ CSS = f"""
      (matches the ~67mm-per-row footprint observed in the rendered .docx) */
   .card {{ min-height: 55mm; }}
   .card.division {{ min-height: 28mm; }}
+  /* multi-digit multiplication: taller card with partial-product rows */
+  .card.mul {{ min-height: 80mm; }}
   .card .num {{ font-size: 11pt; font-weight: 700; margin-bottom: 3pt; }}
   .card.spacer {{ visibility: hidden; min-height: 0; }}
   table.vert {{ border-collapse: collapse; table-layout: fixed; }}
@@ -221,6 +281,9 @@ CSS = f"""
   table.vert tr.r-carry td.carry {{ border: 1px dashed #888; }}
   table.vert tr.rule td {{ border-bottom: 1.5pt solid #000; }}
   table.vert tr.r-ans td.ans {{ border: 1pt solid #000; }}
+  /* partial-product rows for multi-digit multiplication */
+  table.vert tr.r-partial td.pp-box {{ border: 1pt solid #000; }}
+  table.vert tr.r-partial td.pp-empty {{ /* no border */ }}
   .div-row {{ display: flex; align-items: center; gap: 4mm; font-size: 16pt; }}
   .div-row .ans-box {{
     display: inline-block; height: {DIGIT_ROW_MM}mm;
