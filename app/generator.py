@@ -184,8 +184,32 @@ def generate(req: GenerationRequest) -> list[Problem]:
 
 
 def max_digits(problems: Iterable[Problem]) -> int:
-    """Maximum width (in digit columns) needed across all problems for layout."""
+    """Maximum width (in digit columns) needed across all problems for layout.
+
+    For multi-digit multiplication we also reserve room for a uniform-width
+    partial-product row at every shift: the leftmost partial sits at shift
+    (op2_digits - 1), so the worksheet needs at least
+    max_partial_digits + (op2_digits - 1) columns to keep that partial out
+    of the operator column.
+    """
     n = 1
     for p in problems:
         n = max(n, len(str(p.operand1)), len(str(p.operand2)), len(str(p.answer)))
+        if p.operator == "×":
+            op2 = str(p.operand2)
+            if len(op2) >= 2:
+                max_partial = max(
+                    (len(str(p.operand1 * int(d))) for d in op2 if int(d) > 0),
+                    default=1,
+                )
+                n = max(n, max_partial + len(op2) - 1)
     return n
+
+
+def max_partial_width(p: Problem) -> int:
+    """Uniform width to draw every partial-product row for a multi-digit mul."""
+    op2 = str(p.operand2)
+    return max(
+        (len(str(p.operand1 * int(d))) for d in op2 if int(d) > 0),
+        default=1,
+    )

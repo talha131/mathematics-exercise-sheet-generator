@@ -16,7 +16,13 @@ from __future__ import annotations
 
 from html import escape
 
-from .generator import GenerationRequest, Problem, generate, max_digits
+from .generator import (
+    GenerationRequest,
+    Problem,
+    generate,
+    max_digits,
+    max_partial_width,
+)
 
 # Page geometry.
 PAGE_HEIGHT_MM = 297
@@ -113,32 +119,27 @@ def _render_vertical(p: Problem, number: int, digit_cols: int) -> str:
 def _render_multidigit_multiplication(p: Problem, number: int, digit_cols: int) -> str:
     """Multi-digit × multi-digit with N partial-product rows and a final answer.
 
-    Each partial product gets its OWN width (the digit count of operand1 × that
-    digit). Using a per-partial width prevents the leftmost partial from being
-    forced into more columns than fit and overflowing into the operator column —
-    e.g. 250 × 226's partials are 1500 (4-wide), 500 (3-wide), 500 (3-wide).
+    All partial-product rows are drawn at the SAME width within a problem
+    (the maximum digit count of any partial), so the staircase is regular —
+    only the *shift* changes between rows. `max_digits()` ensures
+    `digit_cols` is big enough that even the leftmost (most-shifted) partial
+    fits inside the digit columns and doesn't bleed into the operator column.
+
+    Example, 341 × 516: partials are 2046, 341, 1705. Max width = 4, so
+    every partial gets 4 boxes; the rows step left by 0, 1, 2 columns.
     """
     op2_str = str(p.operand2)
     op2_digits = len(op2_str)
-
-    # rightmost-first: op2_str[-1] is the units digit (k=0), op2_str[0] is the
-    # most-significant digit (k=op2_digits-1). The k-th partial product is
-    # operand1 × digit_k and is shifted left by k columns.
-    partials = []
-    for k in range(op2_digits):
-        digit = int(op2_str[-(k + 1)])
-        product = p.operand1 * digit
-        width = len(str(product)) if product != 0 else 1
-        partials.append((k, width))
+    width = max_partial_width(p)
 
     op1_cells = _digit_cells(p.operand1, digit_cols)
     op2_cells = _digit_cells(p.operand2, digit_cols)
 
     partial_rows = []
-    for idx, (k, width) in enumerate(partials):
+    for k in range(op2_digits):
         right_col = digit_cols - k                       # 1-indexed digit col
         left_col = right_col - width + 1
-        is_last = (idx == len(partials) - 1)
+        is_last = (k == op2_digits - 1)
         row_class = "r-partial rule" if is_last else "r-partial"
         cells = []
         for ci in range(1, digit_cols + 1):
