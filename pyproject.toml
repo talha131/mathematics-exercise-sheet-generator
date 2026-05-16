@@ -1,12 +1,11 @@
 [project]
 name = "math-exercise-sheets"
 version = "0.1.0"
-description = "Web app to generate print-ready A4 math worksheets (PDF) for Grade 2–3 students."
+description = "Web app to generate print-ready A4 math worksheets (HTML, printable to PDF) for Grade 2–3 students."
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
-    "weasyprint>=62",
     "pydantic>=2.7",
 ]
 

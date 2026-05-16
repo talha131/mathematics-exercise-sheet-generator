@@ -1,15 +1,15 @@
 """
 HTML preview / print source for the worksheet.
 
-This module produces a single HTML document that serves two purposes:
-- in-browser preview (the iframe in the form page),
-- input to WeasyPrint, which converts it directly to the PDF the teacher
-  downloads.
+This module produces a single HTML document that serves both:
+- the in-browser preview (the iframe in the form page),
+- the downloadable / printable worksheet itself.
 
 The HTML is paginated server-side into `<div class='page'>` blocks of fixed
-A4 dimensions. @media print rules turn those blocks into actual page breaks
-when WeasyPrint runs; the screen styles add box-shadow and gutters so the
-same DOM reads as "pages on a desk" in the iframe.
+A4 dimensions. CSS `@page` rules and `@media print` blocks turn those blocks
+into actual page breaks when the user prints (browser Print dialog → Save
+as PDF gives a clean A4 PDF); the screen styles add box-shadow and gutters
+so the same DOM reads as "pages on a desk" in the iframe.
 """
 
 from __future__ import annotations

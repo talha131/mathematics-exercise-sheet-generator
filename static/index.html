@@ -226,7 +226,12 @@
 
       <div class="actions">
         <button type="button" id="previewBtn">Preview worksheet</button>
-        <button type="button" id="downloadBtn" class="secondary" disabled>Download PDF</button>
+        <button type="button" id="printBtn" class="secondary" disabled>Print / Save as PDF</button>
+        <button type="button" id="downloadBtn" class="secondary" disabled>Download HTML</button>
+      </div>
+      <div class="legend" style="margin-top:6px;">
+        Print uses your browser&rsquo;s print dialog &mdash; choose <em>Save as PDF</em> there
+        for a PDF file. The HTML download lets you email or archive the worksheet.
       </div>
       <div id="status" class="status"></div>
     </form>
@@ -351,6 +356,7 @@
   /* -------- preview + download -------- */
   const statusEl = document.getElementById("status");
   const previewBtn = document.getElementById("previewBtn");
+  const printBtn = document.getElementById("printBtn");
   const downloadBtn = document.getElementById("downloadBtn");
   const placeholder = document.getElementById("placeholder");
   const frame = document.getElementById("previewFrame");
@@ -380,6 +386,7 @@
 
   previewBtn.addEventListener("click", async () => {
     previewBtn.disabled = true;
+    printBtn.disabled = true;
     downloadBtn.disabled = true;
     setStatus("Building preview…");
     try {
@@ -388,7 +395,12 @@
       frame.srcdoc = html;
       frame.style.display = "block";
       placeholder.style.display = "none";
-      setStatus("Preview updated — click <strong>Download PDF</strong> when you're happy.", "success");
+      setStatus(
+        "Preview ready &mdash; click <strong>Print / Save as PDF</strong> " +
+        "to print, or <strong>Download HTML</strong> to save the file.",
+        "success"
+      );
+      printBtn.disabled = false;
       downloadBtn.disabled = false;
     } catch (err) {
       setStatus(err.__html ? err.message : ("Error: " + err.message), "error");
@@ -397,15 +409,27 @@
     }
   });
 
+  printBtn.addEventListener("click", () => {
+    // Open the browser's print dialog on the iframe's document. The
+    // worksheet's @page / @media print CSS handles page sizing and breaks,
+    // and the user can choose "Save as PDF" from the print dialog.
+    try {
+      frame.contentWindow.focus();
+      frame.contentWindow.print();
+    } catch (err) {
+      setStatus("Couldn't open the print dialog: " + err.message, "error");
+    }
+  });
+
   downloadBtn.addEventListener("click", async () => {
     downloadBtn.disabled = true;
-    setStatus("Generating PDF…");
+    setStatus("Preparing HTML file…");
     try {
       const res = await callApi("/api/generate");
       const blob = await res.blob();
       const dispo = res.headers.get("content-disposition") || "";
       const m = dispo.match(/filename="?([^"]+)"?/);
-      const filename = m ? m[1] : "worksheet.pdf";
+      const filename = m ? m[1] : "worksheet.html";
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -422,10 +446,11 @@
     }
   });
 
-  // re-disable Download whenever inputs change after a successful preview,
-  // so the teacher always re-previews their latest settings before downloading
+  // re-disable Print/Download when inputs change so the teacher always
+  // re-previews the latest settings before printing or saving
   document.getElementById("form").addEventListener("input", () => {
-    if (!downloadBtn.disabled) {
+    if (!printBtn.disabled || !downloadBtn.disabled) {
+      printBtn.disabled = true;
       downloadBtn.disabled = true;
       setStatus("Settings changed — click Preview to refresh.");
     }

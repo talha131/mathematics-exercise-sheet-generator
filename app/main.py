@@ -3,8 +3,12 @@ FastAPI backend for the math exercise sheet generator.
 
 Endpoints:
     GET  /                   → serves the single-page form (static/index.html)
-    POST /api/preview        → returns an HTML preview of the worksheet
-    POST /api/generate       → returns a downloadable, print-ready PDF
+    POST /api/preview        → returns the HTML worksheet (used in the iframe)
+    POST /api/generate       → same HTML, served as a downloadable .html file
+
+The browser handles printing / saving as PDF natively (Cmd-P / Ctrl-P).
+The HTML already carries @page and @media print rules so it prints
+correctly at A4 with all the right page breaks.
 """
 
 from __future__ import annotations
@@ -20,7 +24,6 @@ from pydantic import BaseModel, Field, model_validator
 
 from .generator import GenerationRequest, OperationConfig
 from .html_preview import render_preview
-from .pdf_builder import build_pdf
 
 app = FastAPI(title="Math Exercise Sheet Generator")
 
@@ -129,7 +132,7 @@ def _to_request(p: GeneratePayload) -> GenerationRequest:
 def _safe_filename(title: str) -> str:
     base = re.sub(r"[^A-Za-z0-9_-]+", "_", title).strip("_") or "worksheet"
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return f"{base}_{stamp}.pdf"
+    return f"{base}_{stamp}.html"
 
 
 @app.post("/api/preview", response_class=HTMLResponse)
@@ -141,16 +144,18 @@ def preview(payload: GeneratePayload) -> HTMLResponse:
 
 @app.post("/api/generate")
 def generate(payload: GeneratePayload) -> Response:
-    _validate_business_rules(payload)
-    try:
-        data = build_pdf(_to_request(payload))
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    """Return the worksheet HTML as a downloadable file.
 
+    The teacher can open the saved file in any browser and use the print
+    dialog (Cmd/Ctrl + P) to print or save as PDF — the HTML already
+    carries the @page + @media print rules that drive page breaks.
+    """
+    _validate_business_rules(payload)
+    html = render_preview(_to_request(payload))
     filename = _safe_filename(payload.title)
     return Response(
-        content=data,
-        media_type="application/pdf",
+        content=html,
+        media_type="text/html; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
