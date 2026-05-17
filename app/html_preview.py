@@ -88,7 +88,12 @@ def _section_digit_cols_add(problems: list[Problem]) -> int:
 
 
 def _layout_addition(problems: list[Problem]) -> dict:
-    """Addition + subtraction: tight 3-per-row grid, 9mm cells when possible."""
+    """Addition + subtraction: tight 3-per-row grid, 9mm cells when possible.
+
+    Uses a 12mm row-gap so there's clear breathing room between rows of
+    problems. The 57mm card + 12mm gap = 69mm per-row footprint, which
+    still fits 4 rows (12 problems) on a non-header page (267mm content).
+    """
     digit_cols = _section_digit_cols_add(problems)
     cells_per_card = digit_cols + 1                 # +1 for the operator column
     per_row = 3
@@ -108,6 +113,7 @@ def _layout_addition(problems: list[Problem]) -> dict:
         "carry_mm": carry_mm,
         "font_pt": _font_for(cell_mm),
         "card_h": card_h,
+        "row_gap_mm": 12,
     }
 
 
@@ -196,28 +202,36 @@ def _paginate_section(
     start fresh.
 
     Returns a list of pages; each page is a list of {"type": ..., ...} blocks.
+    Each row-after-the-first-on-a-page costs `card_h + row_gap_mm` so the
+    visual `row-gap` in the grid is reflected in pagination.
     """
     pages: list[list[dict]] = []
     current: list[dict] = []
     used = leading_room
+    rows_on_current_page = 0
     per_row = layout["per_row"]
     card_h = layout["card_h"]
+    row_gap_mm = layout.get("row_gap_mm", 6)
 
     n_rows = (len(problems) + per_row - 1) // per_row
     for ri in range(n_rows):
         slice_ = problems[ri * per_row: (ri + 1) * per_row]
         items = [(numbering[id(p)], p) for p in slice_]
-        is_first_row = (ri == 0)
-        extra = H_SECTION_HEADING if is_first_row else 0
-        if current and used + extra + card_h > PAGE_CONTENT_H:
+        is_first_row_in_section = (ri == 0)
+        heading_h = H_SECTION_HEADING if is_first_row_in_section else 0
+        gap_before = row_gap_mm if rows_on_current_page > 0 else 0
+        if current and used + heading_h + gap_before + card_h > PAGE_CONTENT_H:
             pages.append(current)
             current = []
             used = 0
-        if is_first_row:
+            rows_on_current_page = 0
+            gap_before = 0
+        if is_first_row_in_section:
             current.append({"type": "section_h", "label": SECTION_TITLES[op]})
             used += H_SECTION_HEADING
         current.append({"type": "row", "items": items})
-        used += card_h
+        used += gap_before + card_h
+        rows_on_current_page += 1
 
     if current:
         pages.append(current)
@@ -288,7 +302,8 @@ CSS = f"""
   .grid {{
     display: grid;
     grid-template-columns: var(--grid-cols, 1fr 1fr 1fr);
-    column-gap: {COLUMN_GAP_MM}mm; row-gap: 6mm;
+    column-gap: {COLUMN_GAP_MM}mm;
+    row-gap: var(--row-gap, 6mm);
   }}
   .card .num {{ font-size: 11pt; font-weight: 700; margin-bottom: 3pt; }}
   .card.spacer {{ visibility: hidden; }}
@@ -335,6 +350,7 @@ CSS = f"""
 def _page_style(layout: dict) -> str:
     """Inline CSS-variable declarations for a section's layout, attached to its .page."""
     grid_cols = " ".join(["1fr"] * layout["per_row"])
+    row_gap = layout.get("row_gap_mm", 6)
     return (
         f"--cell-w:{layout['cell_mm']:.3f}mm;"
         f"--cell-h:{layout['row_mm']:.3f}mm;"
@@ -342,6 +358,7 @@ def _page_style(layout: dict) -> str:
         f"--carry-h:{layout['carry_mm']:.3f}mm;"
         f"--div-font:{max(12, layout['font_pt'] - 2)}pt;"
         f"--grid-cols:{grid_cols};"
+        f"--row-gap:{row_gap}mm;"
     )
 
 

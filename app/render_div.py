@@ -42,6 +42,7 @@ def compute_layout(problems: list[Problem]) -> dict:
         "carry_mm": 0,
         "font_pt": 16,
         "card_h": card_h,
+        "row_gap_mm": 10,
     }
 
 

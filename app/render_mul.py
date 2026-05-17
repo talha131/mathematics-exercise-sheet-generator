@@ -82,6 +82,7 @@ def compute_layout(problems: list[Problem]) -> dict:
         "carry_mm": carry_mm,
         "font_pt": font_for(cell_mm),
         "card_h": card_h,
+        "row_gap_mm": 10,                          # roomier than addition since mul cards are taller anyway
     }
 
 
