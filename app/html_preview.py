@@ -435,7 +435,13 @@ CSS = f"""
   table.vert tr.rule td {{ border-bottom: 1.5pt solid #000; }}
   table.vert tr.r-ans td.ans {{ border: 1pt solid #000; }}
   table.vert tr.r-partial td.pp-box {{ border: 1pt solid #000; }}
-  table.vert tr.r-partial td.pp-empty {{ /* no border */ }}
+  /* inactive cells in a partial row: a light dashed box so the student
+     still sees a complete grid (no "missing" boxes), while the solid
+     borders mark where this particular partial product should land */
+  table.vert tr.r-partial td.pp-empty {{ border: 0.75pt dashed #b8b8b8; }}
+  /* the rule under the LAST partial row needs to win over both pp-box's
+     1pt bottom and pp-empty's dashed bottom, so it's drawn at full strength */
+  table.vert tr.r-partial.rule td {{ border-bottom: 1.5pt solid #000; }}
 
   .div-row {{
     display: flex; align-items: center; gap: 4mm;
