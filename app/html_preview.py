@@ -88,14 +88,23 @@ def _section_digit_cols_add(problems: list[Problem]) -> int:
 
 
 def _layout_addition(problems: list[Problem]) -> dict:
-    """Addition + subtraction: 3-per-row grid, 9mm cells, plenty of gap.
+    """Addition + subtraction: 3-per-row grid, 9mm cells, generous spacing.
 
-    A card consists of: problem number (~5mm), thin dashed carry row
-    (~5mm), two operand rows + one answer row (3 × 10mm), plus a tiny
-    safety margin for font line-height variance. That's about 45mm of
-    real height — NOT the 57mm we used to pretend. Pagination now uses
-    the real height, which is what lets us fit 12 problems on every
-    page AND keep generous row/column gaps for the student.
+    Card height — measured the way a browser actually renders it:
+
+        problem number "1." paragraph:  11pt × 1.2 line-height + 3pt
+                                        margin-bottom  ≈ 5.7 mm
+        carry row:                       carry_mm        ≈ 5 mm
+        operand1 + operand2 + answer:    3 × row_mm     = 30 mm
+        ─────────────────────────────────────────────────
+        total content                                   ≈ 40.7 mm
+
+    Plus a 0.5 mm safety margin so the rounded card_h is 41 mm. With a
+    22 mm row-gap and a 24 mm header + 11 mm section heading, four rows
+    of three problems = 12 problems fit on page 1 of A4 (267 mm content):
+        4 × 41 + 3 × 22 + 35  =  265 mm  ≤  267 mm
+    Pages 2 onward have no header, so 12 problems fit with 37 mm of
+    bottom margin to spare.
     """
     digit_cols = _section_digit_cols_add(problems)
     cells_per_card = digit_cols + 1                 # +1 for the operator column
@@ -106,8 +115,8 @@ def _layout_addition(problems: list[Problem]) -> dict:
         cell_mm = _fit_cells(per_row, cells_per_card, max_cell=11)
     row_mm = cell_mm * 10 / 9
     carry_mm = max(3.5, cell_mm * 0.55)
-    # 5mm for problem number paragraph + 5mm safety margin
-    card_h = round(row_mm * 3 + carry_mm + 10)
+    # 5.7mm for the problem-number paragraph (font size + line-height + margin)
+    card_h = round(row_mm * 3 + carry_mm + 6)
     return {
         "op": "+",  # filled in by caller
         "digit_cols": digit_cols,
@@ -117,8 +126,8 @@ def _layout_addition(problems: list[Problem]) -> dict:
         "carry_mm": carry_mm,
         "font_pt": _font_for(cell_mm),
         "card_h": card_h,
-        "row_gap_mm": 16,                            # vertical breathing room between rows
-        "col_gap_mm": 10,                            # horizontal breathing room between cards in a row
+        "row_gap_mm": 22,                            # max gap that still fits 12 per page
+        "col_gap_mm": 12,                            # generous horizontal breathing room
     }
 
 
