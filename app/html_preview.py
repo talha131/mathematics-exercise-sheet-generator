@@ -88,11 +88,14 @@ def _section_digit_cols_add(problems: list[Problem]) -> int:
 
 
 def _layout_addition(problems: list[Problem]) -> dict:
-    """Addition + subtraction: tight 3-per-row grid, 9mm cells when possible.
+    """Addition + subtraction: 3-per-row grid, 9mm cells, plenty of gap.
 
-    Uses a 12mm row-gap so there's clear breathing room between rows of
-    problems. The 57mm card + 12mm gap = 69mm per-row footprint, which
-    still fits 4 rows (12 problems) on a non-header page (267mm content).
+    A card consists of: problem number (~5mm), thin dashed carry row
+    (~5mm), two operand rows + one answer row (3 × 10mm), plus a tiny
+    safety margin for font line-height variance. That's about 45mm of
+    real height — NOT the 57mm we used to pretend. Pagination now uses
+    the real height, which is what lets us fit 12 problems on every
+    page AND keep generous row/column gaps for the student.
     """
     digit_cols = _section_digit_cols_add(problems)
     cells_per_card = digit_cols + 1                 # +1 for the operator column
@@ -103,7 +106,8 @@ def _layout_addition(problems: list[Problem]) -> dict:
         cell_mm = _fit_cells(per_row, cells_per_card, max_cell=11)
     row_mm = cell_mm * 10 / 9
     carry_mm = max(3.5, cell_mm * 0.55)
-    card_h = round(row_mm * 3 + carry_mm + 22)      # carry + op1 + op2 + ans + padding
+    # 5mm for problem number paragraph + 5mm safety margin
+    card_h = round(row_mm * 3 + carry_mm + 10)
     return {
         "op": "+",  # filled in by caller
         "digit_cols": digit_cols,
@@ -113,7 +117,8 @@ def _layout_addition(problems: list[Problem]) -> dict:
         "carry_mm": carry_mm,
         "font_pt": _font_for(cell_mm),
         "card_h": card_h,
-        "row_gap_mm": 12,
+        "row_gap_mm": 16,                            # vertical breathing room between rows
+        "col_gap_mm": 10,                            # horizontal breathing room between cards in a row
     }
 
 
@@ -302,7 +307,7 @@ CSS = f"""
   .grid {{
     display: grid;
     grid-template-columns: var(--grid-cols, 1fr 1fr 1fr);
-    column-gap: {COLUMN_GAP_MM}mm;
+    column-gap: var(--col-gap, {COLUMN_GAP_MM}mm);
     row-gap: var(--row-gap, 6mm);
   }}
   .card .num {{ font-size: 11pt; font-weight: 700; margin-bottom: 3pt; }}
@@ -351,6 +356,7 @@ def _page_style(layout: dict) -> str:
     """Inline CSS-variable declarations for a section's layout, attached to its .page."""
     grid_cols = " ".join(["1fr"] * layout["per_row"])
     row_gap = layout.get("row_gap_mm", 6)
+    col_gap = layout.get("col_gap_mm", COLUMN_GAP_MM)
     return (
         f"--cell-w:{layout['cell_mm']:.3f}mm;"
         f"--cell-h:{layout['row_mm']:.3f}mm;"
@@ -359,6 +365,7 @@ def _page_style(layout: dict) -> str:
         f"--div-font:{max(12, layout['font_pt'] - 2)}pt;"
         f"--grid-cols:{grid_cols};"
         f"--row-gap:{row_gap}mm;"
+        f"--col-gap:{col_gap}mm;"
     )
 
 
