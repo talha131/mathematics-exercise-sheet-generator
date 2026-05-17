@@ -38,7 +38,7 @@ from .generator import (
     generate,
     max_partial_width,
 )
-from . import render_mul
+from . import render_div, render_mul
 
 # ---------- page geometry ---------------------------------------------------
 
@@ -115,29 +115,8 @@ def _layout_addition(problems: list[Problem]) -> dict:
 _layout_multiplication = render_mul.compute_layout
 
 
-def _layout_division(problems: list[Problem]) -> dict:
-    """
-    Division uses a horizontal format `a ÷ b = ⬜` so each card is short.
-    We fit 3 per row regardless of magnitude; the answer box auto-sizes to
-    the digit count of the actual quotient.
-    """
-    digit_cols = max(
-        (len(str(p.answer)) for p in problems),
-        default=1,
-    )
-    per_row = 3
-    cell_mm = 9                                  # nominal — division uses its own cell sizing
-    row_mm = 10
-    card_h = round(row_mm + 18)                  # one row + problem number + padding
-    return {
-        "digit_cols": digit_cols,
-        "per_row": per_row,
-        "cell_mm": cell_mm,
-        "row_mm": row_mm,
-        "carry_mm": 0,
-        "font_pt": 16,
-        "card_h": card_h,
-    }
+# Division's layout lives in render_div — see app/render_div.py.
+_layout_division = render_div.compute_layout
 
 
 LAYOUTS = {
@@ -186,24 +165,9 @@ def _render_vertical(p: Problem, number: int, layout: dict) -> str:
     )
 
 
-def _render_division(p: Problem, number: int, layout: dict) -> str:
-    """Horizontal `a ÷ b = ⬜` with an answer box sized to the quotient."""
-    cell = layout["cell_mm"]
-    box_w = max(2, len(str(p.answer)) + 1) * cell
-    return (
-        "<div class='card division'>"
-        f"<div class='num'>{number}.</div>"
-        "<div class='div-row'>"
-        f"<span class='div-text'>{p.operand1} ÷ {p.operand2} =</span>"
-        f"<span class='ans-box' style='width:{box_w:.2f}mm;'></span>"
-        "</div>"
-        "</div>"
-    )
-
-
 def _render_card(p: Problem, number: int, layout: dict) -> str:
     if p.operator == "÷":
-        return _render_division(p, number, layout)
+        return render_div.render_card(p, number, layout)
     if p.operator == "×":
         return render_mul.render_card(p, number, layout)
     return _render_vertical(p, number, layout)
