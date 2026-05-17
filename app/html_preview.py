@@ -240,6 +240,13 @@ def _paginate(
         problems = groups[op]
         if not problems:
             continue
+        # Each operation starts on its own page. The first non-empty section
+        # uses page 1 (which already includes the header); every later section
+        # flushes the current page and begins a new one.
+        if current:
+            pages.append(current)
+            current = []
+            used = 0
         n_rows = (len(problems) + per_row - 1) // per_row
         for ri in range(n_rows):
             slice_ = problems[ri * per_row: (ri + 1) * per_row]
