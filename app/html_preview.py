@@ -38,6 +38,7 @@ from .generator import (
     generate,
     max_partial_width,
 )
+from . import render_mul
 
 # ---------- page geometry ---------------------------------------------------
 
@@ -86,17 +87,6 @@ def _section_digit_cols_add(problems: list[Problem]) -> int:
     return n
 
 
-def _section_digit_cols_mul(problems: list[Problem]) -> int:
-    n = 1
-    for p in problems:
-        n = max(n, len(str(p.operand1)), len(str(p.operand2)), len(str(p.answer)))
-        if len(str(p.operand2)) >= 2:
-            # uniform-width partial staircase: leftmost partial sits at shift
-            # (op2_digits - 1) and is `max_partial_width(p)` wide.
-            n = max(n, max_partial_width(p) + len(str(p.operand2)) - 1)
-    return n
-
-
 def _layout_addition(problems: list[Problem]) -> dict:
     """Addition + subtraction: tight 3-per-row grid, 9mm cells when possible."""
     digit_cols = _section_digit_cols_add(problems)
@@ -121,49 +111,8 @@ def _layout_addition(problems: list[Problem]) -> dict:
     }
 
 
-def _layout_multiplication(problems: list[Problem]) -> dict:
-    """
-    Multiplication has its own layout because the cards are physically
-    different: multi-digit cases get N partial-product rows. We prefer
-    LARGER cells with FEWER cards per row so the staircase is easy to read.
-    """
-    digit_cols = _section_digit_cols_mul(problems)
-    cells_per_card = digit_cols + 1
-    has_multi = any(len(str(p.operand2)) >= 2 for p in problems)
-    max_cell = 11 if has_multi else 9
-
-    if has_multi:
-        # multi-digit problems always want 2 per row — bigger cells, easier
-        # to track which column you're in across N partial rows
-        per_row = 2
-    else:
-        per_row = 3
-
-    cell_mm = _fit_cells(per_row, cells_per_card, max_cell=max_cell)
-    if cell_mm < 7:
-        per_row = max(1, per_row - 1)
-        cell_mm = _fit_cells(per_row, cells_per_card, max_cell=max_cell)
-    row_mm = cell_mm * 10 / 9
-    carry_mm = max(3.5, cell_mm * 0.55)
-
-    # tallest card determines per-row vertical footprint for pagination
-    max_op2_digits = max(len(str(p.operand2)) for p in problems)
-    if max_op2_digits >= 2:
-        rows = 2 + max_op2_digits + 1          # op1, op2, N partials, answer
-    else:
-        rows = 4                                # carry, op1, op2, answer
-    extra = carry_mm if max_op2_digits < 2 else 0
-    card_h = round(row_mm * rows + extra + 22)
-
-    return {
-        "digit_cols": digit_cols,
-        "per_row": per_row,
-        "cell_mm": cell_mm,
-        "row_mm": row_mm,
-        "carry_mm": carry_mm,
-        "font_pt": _font_for(cell_mm),
-        "card_h": card_h,
-    }
+# Multiplication's layout lives in render_mul — see app/render_mul.py.
+_layout_multiplication = render_mul.compute_layout
 
 
 def _layout_division(problems: list[Problem]) -> dict:
@@ -237,48 +186,6 @@ def _render_vertical(p: Problem, number: int, layout: dict) -> str:
     )
 
 
-def _render_multidigit_multiplication(p: Problem, number: int, layout: dict) -> str:
-    """Multi-digit × multi-digit with N partial-product rows + final answer.
-
-    All partial-product rows are drawn at the SAME per-problem width so the
-    staircase is regular; only the *shift* changes between rows.
-    """
-    cols = layout["digit_cols"]
-    op2_str = str(p.operand2)
-    op2_digits = len(op2_str)
-    width = max_partial_width(p)
-
-    op1_cells = _digit_cells(p.operand1, cols)
-    op2_cells = _digit_cells(p.operand2, cols)
-
-    partial_rows = []
-    for k in range(op2_digits):
-        right_col = cols - k
-        left_col = right_col - width + 1
-        is_last = (k == op2_digits - 1)
-        row_class = "r-partial rule" if is_last else "r-partial"
-        cells = []
-        for ci in range(1, cols + 1):
-            in_box = left_col <= ci <= right_col
-            cell_class = "pp-box" if in_box else "pp-empty"
-            cells.append(f"<td class='{cell_class}'></td>")
-        partial_rows.append(
-            f"<tr class='{row_class}'><td class='op'></td>{''.join(cells)}</tr>"
-        )
-
-    return (
-        "<div class='card vertical mul'>"
-        f"<div class='num'>{number}.</div>"
-        "<table class='vert'>"
-        f"<tr class='r-op'><td class='op'></td>{op1_cells}</tr>"
-        f"<tr class='r-op rule'><td class='op'>{escape(p.operator)}</td>{op2_cells}</tr>"
-        f"{''.join(partial_rows)}"
-        f"<tr class='r-ans'><td class='op'></td>{_empty_cells('ans', cols)}</tr>"
-        "</table>"
-        "</div>"
-    )
-
-
 def _render_division(p: Problem, number: int, layout: dict) -> str:
     """Horizontal `a ÷ b = ⬜` with an answer box sized to the quotient."""
     cell = layout["cell_mm"]
@@ -297,8 +204,8 @@ def _render_division(p: Problem, number: int, layout: dict) -> str:
 def _render_card(p: Problem, number: int, layout: dict) -> str:
     if p.operator == "÷":
         return _render_division(p, number, layout)
-    if p.operator == "×" and len(str(p.operand2)) >= 2:
-        return _render_multidigit_multiplication(p, number, layout)
+    if p.operator == "×":
+        return render_mul.render_card(p, number, layout)
     return _render_vertical(p, number, layout)
 
 
