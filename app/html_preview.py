@@ -196,11 +196,21 @@ def _render_card(p: Problem, number: int, layout: dict) -> str:
     return _render_vertical(p, number, layout)
 
 
-def _render_row(items: list[tuple[int, Problem]], layout: dict) -> str:
-    parts = [_render_card(p, n, layout) for n, p in items]
-    for _ in range(layout["per_row"] - len(items)):
-        parts.append("<div class='card spacer'></div>")
-    return f"<div class='grid'>{''.join(parts)}</div>"
+def _render_grid(rows: list[dict], layout: dict) -> str:
+    """Render the row blocks for a single page as ONE css grid.
+
+    Putting all rows into one grid lets CSS `row-gap` actually act
+    between rows — when each row was its own `<div class='grid'>`,
+    `row-gap` had no siblings inside the grid to gap between, and the
+    visual gap was effectively zero. The grid's auto-flow handles
+    multi-row layout: with `grid-template-columns: 1fr 1fr 1fr` and N
+    cards, the browser produces ⌈N/3⌉ rows.
+    """
+    all_items: list[tuple[int, Problem]] = []
+    for row in rows:
+        all_items.extend(row["items"])
+    cards = [_render_card(p, n, layout) for n, p in all_items]
+    return f"<div class='grid'>{''.join(cards)}</div>"
 
 
 # ---------- pagination ------------------------------------------------------
@@ -392,12 +402,8 @@ def _render_header() -> str:
     )
 
 
-def _render_block(block: dict, layout: dict) -> str:
-    if block["type"] == "section_h":
-        return f"<div class='section-h'>{escape(block['label'])}</div>"
-    if block["type"] == "row":
-        return _render_row(block["items"], layout)
-    return ""
+def _render_section_heading(label: str) -> str:
+    return f"<div class='section-h'>{escape(label)}</div>"
 
 
 def render_preview(req: GenerationRequest) -> str:
@@ -432,8 +438,20 @@ def render_preview(req: GenerationRequest) -> str:
         if i == 0:
             parts.append(_render_header())
             parts.append(f"<div class='title'>{title}</div>")
+        # Coalesce consecutive 'row' blocks into a single grid so the CSS
+        # row-gap actually applies between them. Section headings break the
+        # run (but in practice each page only ever has one section heading).
+        collected_rows: list[dict] = []
         for block in page_blocks:
-            parts.append(_render_block(block, layout))
+            if block["type"] == "section_h":
+                if collected_rows:
+                    parts.append(_render_grid(collected_rows, layout))
+                    collected_rows = []
+                parts.append(_render_section_heading(block["label"]))
+            elif block["type"] == "row":
+                collected_rows.append(block)
+        if collected_rows:
+            parts.append(_render_grid(collected_rows, layout))
         rendered_pages.append(
             f"<div class='page' style=\"{_page_style(layout)}\">"
             f"{''.join(parts)}</div>"
