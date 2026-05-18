@@ -88,34 +88,37 @@ def _section_digit_cols_add(problems: list[Problem]) -> int:
 
 
 def _layout_addition(problems: list[Problem]) -> dict:
-    """Addition + subtraction: 3-per-row grid, 9mm cells, generous spacing.
+    """Addition + subtraction: 3-per-row grid, 10mm cells, 20pt digits.
 
     Card height — measured the way a browser actually renders it:
 
-        problem number "1." paragraph:  11pt × 1.2 line-height + 3pt
-                                        margin-bottom  ≈ 5.7 mm
-        carry row:                       carry_mm        ≈ 5 mm
-        operand1 + operand2 + answer:    3 × row_mm     = 30 mm
+        problem number paragraph (11pt × 1.2 + 3pt margin):   ~5.7 mm
+        carry row (carry_mm):                                 ~5.5 mm
+        operand1 + operand2 + answer (3 × row_mm):           ~33.3 mm
         ─────────────────────────────────────────────────
-        total content                                   ≈ 40.7 mm
+        total content                                        ~44.5 mm
 
-    Plus a 0.5 mm safety margin so the rounded card_h is 41 mm. With a
-    22 mm row-gap and a 24 mm header + 11 mm section heading, four rows
-    of three problems = 12 problems fit on page 1 of A4 (267 mm content):
-        4 × 41 + 3 × 22 + 35  =  265 mm  ≤  267 mm
-    Pages 2 onward have no header, so 12 problems fit with 37 mm of
-    bottom margin to spare.
+    Rounded to card_h = 45 mm. With a 17 mm row-gap and a 24 mm header
+    + 11 mm section heading, 4 rows × 3 problems = 12 fit on page 1:
+        4 × 45 + 3 × 17 + 35  =  266 mm  ≤  267 mm
+    Pages 2 onward have no header so there's even more headroom.
+
+    The cells are intentionally bigger than they need to be (10 mm at
+    20 pt instead of 9 mm at 18 pt) — the user noted that addition
+    looked tight next to multiplication's 11 mm / 22 pt cards, and
+    bumping the cell footprint makes the digits and answer boxes feel
+    more substantial without dropping the 12-per-page density.
     """
     digit_cols = _section_digit_cols_add(problems)
     cells_per_card = digit_cols + 1                 # +1 for the operator column
     per_row = 3
-    cell_mm = _fit_cells(per_row, cells_per_card, max_cell=9)
+    cell_mm = _fit_cells(per_row, cells_per_card, max_cell=10)
     if cell_mm < 7:                                 # too cramped — drop a column
         per_row = 2
-        cell_mm = _fit_cells(per_row, cells_per_card, max_cell=11)
+        cell_mm = _fit_cells(per_row, cells_per_card, max_cell=12)
     row_mm = cell_mm * 10 / 9
     carry_mm = max(3.5, cell_mm * 0.55)
-    # 5.7mm for the problem-number paragraph (font size + line-height + margin)
+    # 5.7mm for the problem-number paragraph + a small safety margin
     card_h = round(row_mm * 3 + carry_mm + 6)
     return {
         "op": "+",  # filled in by caller
@@ -126,7 +129,7 @@ def _layout_addition(problems: list[Problem]) -> dict:
         "carry_mm": carry_mm,
         "font_pt": _font_for(cell_mm),
         "card_h": card_h,
-        "row_gap_mm": 22,                            # max gap that still fits 12 per page
+        "row_gap_mm": 17,                            # max gap that still fits 12 per page with 10mm cells
         "col_gap_mm": 12,                            # generous horizontal breathing room
     }
 
