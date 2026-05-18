@@ -173,7 +173,7 @@ Useful when eyeballing a worksheet to see if it looks right.
 
 | Section | per-row | cell mm | row mm | font pt | row-gap | col-gap | `card_h` (mm) |
 |---------|--------:|--------:|-------:|--------:|--------:|--------:|--------------:|
-| Addition / Subtraction        | 3 | 9 | 10 | 18 | 22 | 12 | 41 |
+| Addition / Subtraction        | 3 | 10 | 11.11 | 20 | 17 | 12 | 45 |
 | Multiplication (1-digit ×)    | 3 | 9 | 10 | 18 | 14 | 10 | 41 |
 | Multiplication (multi-digit ×)| 2 | 11 | 12.22 | 22 | 14 | 10 | 80–100 (depends on op2_digits) |
 | Division                      | 3 | 9 | 10 | 16 | 12 | 10 | 28 |
@@ -195,16 +195,18 @@ title). Section heading: `H_SECTION_HEADING = 11 mm`.
 
 ### Addition card height — measured the way the browser renders it
 
+With the current 10 mm cells / 20 pt digits:
+
 ```
 problem-number paragraph (11pt × 1.2 line-height + 3pt margin) ~ 5.7 mm
-carry row                                                       ~ 5   mm
-operand1 + operand2 + answer (3 × 10mm)                           30   mm
+carry row (carry_mm = cell_mm × 0.55)                          ~ 5.5 mm
+operand1 + operand2 + answer (3 × row_mm = 3 × 11.11mm)         33.3 mm
                                                                 ─────
-                                                                 40.7 mm
+total content                                                  ~44.5 mm
 ```
 
-We round to **41 mm** for `card_h`. The historical `card_h = 57`
-formula had a phantom `+22` mm padding that the browser never actually
+We round to **45 mm** for `card_h`. The historical `card_h = 57` formula
+had a phantom `+22` mm padding that the browser never actually
 rendered, which is why the user kept seeing "no breathing space" —
 pagination thought the rows were already at the page limit and refused
 to leave any gap.
@@ -217,14 +219,14 @@ to leave any gap.
 4 × card_h + 3 × row_gap + 35 (header + section heading)  ≤  267
 ```
 
-With `card_h = 41`: `3 × row_gap ≤ 68`, so the **max row-gap is 22 mm**.
-That's where addition sits now.
+With `card_h = 45`: `3 × row_gap ≤ 52`, so the **max row-gap is 17 mm**
+at 10 mm cells. That's where addition sits now (266 mm used, 1 mm
+spare). On non-header pages: `4 × 45 + 3 × 17 = 231 ≤ 267`, with
+36 mm of bottom margin to spare.
 
-On non-header pages: `4 × 41 + 3 × 22 = 230 ≤ 267`, with 37 mm of
-bottom margin to spare.
-
-If the user later asks for *bigger* gaps than 22 mm we either drop to
-9 per page or shrink the cards.
+If the user wants *bigger* gaps than 17 mm we either drop to 9 per
+page or shrink the cells (back to 9 mm at 18 pt yields a max gap of
+~22 mm — the previous configuration).
 
 ### Multiplication
 
