@@ -40,6 +40,18 @@ The browser is universally available, renders CSS Grid pixel-perfectly,
 and its print dialog gives the user PDF-save for free. We don't want
 to give that up.
 
+### Output-format pivot history
+
+| Era | Stack | Why it failed |
+|-----|-------|---------------|
+| **v1 — python-docx** | Generated `.docx` with nested tables; one outer table per problem-row, one inner table per problem card. Used `cantSplit` and `keep_with_next` for pagination. | Word's table-rendering is hostile to per-cell border control. Multi-digit multiplication's partial-product staircase was broken: cells had slightly different widths, the operator column was invaded when partials were uniform-width, the horizontal rule didn't span the row correctly. Every tweak fought Word. |
+| **v2 — WeasyPrint** | Pivoted to rendering the same HTML used for the iframe preview straight to PDF with WeasyPrint. Pixel-perfect output, single source of truth for layout. | First time the user installed it on a fresh machine, WeasyPrint failed with "could not import some external libraries" (Cairo/Pango missing). The fix is a system package install — not acceptable for a teacher running this from a double-clickable launcher. |
+| **v3 — browser-printed HTML (current)** | The form returns plain HTML. The user clicks **Print / Save as PDF** in the form, which calls `window.print()` on the preview iframe; the browser's own print dialog produces the PDF. **Zero native deps.** | This is where we are. Trade-off: one extra click in the print dialog. |
+
+If anyone proposes going back to PDF generation or .docx output, the
+default answer is "no, we already tried". Counter-cases would need to
+solve the install problem for non-developer users.
+
 ---
 
 ## Architecture
@@ -155,6 +167,25 @@ this into long-division (the bracket) or remainder cards.
 
 ---
 
+## Per-section concrete layout numbers
+
+Useful when eyeballing a worksheet to see if it looks right.
+
+| Section | per-row | cell mm | row mm | font pt | row-gap | col-gap | `card_h` (mm) |
+|---------|--------:|--------:|-------:|--------:|--------:|--------:|--------------:|
+| Addition / Subtraction        | 3 | 9 | 10 | 18 | 22 | 12 | 41 |
+| Multiplication (1-digit ×)    | 3 | 9 | 10 | 18 | 14 | 10 | 41 |
+| Multiplication (multi-digit ×)| 2 | 11 | 12.22 | 22 | 14 | 10 | 80–100 (depends on op2_digits) |
+| Division                      | 3 | 9 | 10 | 16 | 12 | 10 | 28 |
+
+Each section sets these via inline CSS variables on its `.page` element.
+The `compute_layout` in the relevant module recomputes them every
+render — they're not constants — so if `digit_cols` is unusually wide,
+cells shrink to fit. The numbers above are what you see in a typical
+worksheet (3-digit operands or smaller).
+
+---
+
 ## Layout math (memorize these numbers)
 
 A4 portrait, 15 mm margins → **180 mm × 267 mm content area.**
@@ -210,6 +241,175 @@ Row-gap is 14 mm; column-gap is 10 mm.
 ### Division
 
 Simple horizontal cards, 3 per row, row-gap 12 mm, column-gap 10 mm.
+
+---
+
+## Generator (`app/generator.py`)
+
+### Inputs
+
+A `GenerationRequest` carries an `OperationConfig` for each operator:
+
+```python
+OperationConfig(
+    enabled=True,
+    count=N,                # 0..200
+    min1, max1, min2, max2, # 0..9999
+)
+```
+
+Plus `title`, `include_answer_key`, and `seed` (optional — for
+reproducible problem sets in tests).
+
+### Per-operator generation rules
+
+- **Addition** — straight `random.randint` on the two ranges. No special
+  cases.
+- **Subtraction** — generates `(a, b)` and **swaps** if `b > a` so the
+  answer is always non-negative. Grade 2–3 isn't ready for negatives.
+- **Multiplication** — straight random. Multi-digit cases fall out
+  naturally when the teacher widens `max2`.
+- **Division** — generates **exact** division (no remainder). Strategy:
+  pick divisor `b ∈ [min2, max2]` (clamping `min2 ≥ 1`), then a quotient
+  `q` such that `a = b × q` lies in `[min1, max1]`. If the divisor range
+  makes any exact problem impossible, retry up to 30 times before
+  falling back. The endpoint in `main.py` also runs a **feasibility
+  check** up front and returns a clear 400 if no exact division can fit
+  the requested ranges.
+
+### Difficulty heuristic
+
+`Problem.difficulty` is `digits(op1) + digits(op2)` plus a +1 bonus if
+the column-wise computation would require **regrouping** (carry for
+addition, borrow for subtraction). Multiplication / division add a
+half-point per digit of the answer. The full problem list is sorted
+ascending by difficulty inside `_group()` so each section runs
+easiest-first.
+
+### `max_digits()` and `max_partial_width()`
+
+`max_digits(problems)` returns the digit-column count any layout needs
+in order to fit operands, answers, **and** (for multi-digit ×) the
+shifted partial-product staircase. Always use it when computing
+`digit_cols` for a section; don't roll your own.
+
+`max_partial_width(p)` is the uniform width every partial-product row
+in a multi-digit multiplication card should be drawn at.
+
+---
+
+## HTTP API (`app/main.py`)
+
+Three endpoints. Validation and rendering responsibilities are split:
+
+- `GET /` → serves `static/index.html`.
+- `POST /api/preview` → returns the rendered worksheet HTML for the
+  iframe. Used by the **Preview worksheet** button.
+- `POST /api/generate` → returns the same HTML with a
+  `Content-Disposition: attachment; filename="{title}_{stamp}.html"`
+  header so the browser downloads it. Used by the **Download HTML**
+  button.
+
+### Validation pipeline
+
+Two layers of validation:
+
+1. **Pydantic** (`OperationPayload`, `GeneratePayload`). Field-level
+   bounds (`ge=0, le=9999`, etc.) and a `model_validator` on
+   `OperationPayload` that enforces `max1 ≥ min1` and `max2 ≥ min2`
+   *only when the operation is enabled with count > 0*. That last
+   condition matters — we don't want a disabled section's stale defaults
+   to block submission.
+2. **`_validate_business_rules(payload)`** runs inside both endpoints
+   for things that aren't expressible as field-level validators:
+   - At least one operation must be enabled with a count > 0.
+   - Division: `min2 ≥ 1`, and a feasibility scan to make sure some
+     exact division actually exists in the given ranges. Otherwise we
+     return a helpful 400 telling the user to widen the dividend or
+     divisor range, instead of letting the generator silently fall back.
+
+### Error wire format
+
+Pydantic validation failures arrive at the frontend as a 422 with a
+**list** of `{type, loc, msg, input, ctx}` objects under `detail`.
+Business-rules failures are 400 with `detail` as a plain string. The
+frontend's `formatErrors()` (in `static/index.html`) handles both —
+trimming the `"Value error, "` prefix Pydantic prepends and joining `loc`
+into a human label like `Addition: first number's max must be ≥ its
+min`. If you change the validator's `msg` strings, the frontend doesn't
+need updating; it just shows whatever text comes back.
+
+---
+
+## Frontend (`static/index.html`)
+
+Single page, vanilla JS, no build step.
+
+### Form structure
+
+- The operation cards are **generated from a JS `OPS` array**, not
+  hand-written. Each entry has `id, label, defaultEnabled, defaults
+  (count/min1/max1/min2/max2), optional labels override (Dividend /
+  Divisor for ÷), optional legend text`. To add an operation in the UI,
+  add an entry to `OPS` — that's it.
+- Each operation card has a checkbox at the top. When unchecked, the
+  card collapses (`.body` hidden via `[data-enabled="false"] .body
+  {display:none}`) and its number inputs are disabled. The form is
+  short and scannable.
+- Number ranges are laid out as **two rows per operation** — "First
+  number: min ___ max ___" and "Second number: min ___ max ___" —
+  rather than a wide single row of five inputs. Easier to scan, easier
+  on narrow screens.
+
+### Preview / Print / Download flow
+
+1. **Preview worksheet** calls `/api/preview`, drops the returned HTML
+   into the iframe via `srcdoc`, switches the placeholder out, and
+   enables the Print and Download buttons.
+2. **Print / Save as PDF** calls `frame.contentWindow.print()`. The
+   browser's print dialog handles paper size, the user picks
+   "Save as PDF" there if they want a file.
+3. **Download HTML** calls `/api/generate` (same payload as preview)
+   and triggers a blob download with the server-supplied filename.
+
+A `form input` listener disables both action buttons whenever any field
+changes after a successful preview, with the status message "Settings
+changed — click Preview to refresh." This prevents downloading a stale
+worksheet.
+
+### Status line
+
+Three states styled differently: neutral (`.status`), `.status.error`
+(red), `.status.success` (green). Errors that come back as a list (from
+`formatErrors`) are rendered as a `<ul>` with one item per loc.
+
+---
+
+## Pinned user preferences (= requirements)
+
+These were established during back-and-forth with the user and should
+NOT be relitigated:
+
+- **12 problems per page on addition / subtraction.** Not 9, not 15.
+  The current `card_h = 41` and `row_gap = 22` are tuned exactly so 12
+  fit on page 1 (with the header) and on every subsequent page.
+- **Each operation gets its own page break.** Addition ends → flush →
+  Subtraction starts on a new page, even if the previous page had
+  room. The user wants this for navigation.
+- **Multi-digit multiplication uses uniform-width partial rows.** The
+  earlier per-partial-width version produced a visible zigzag in the
+  staircase. Uniform width = clean staircase, only the *shift* changes
+  per row.
+- **Every cell in a partial-product row must have a visible border.**
+  Inactive cells use a *light dashed* border (the active cells stay
+  solid). The user explicitly reported "missing boxes" when inactive
+  cells had no border — they want a complete grid.
+- **No editable .docx output.** The user confirmed they don't need
+  Word output; the print → save-as-PDF flow is enough.
+- **Browser-printed HTML, not server-side PDF.** No native deps.
+- **Per-operation independent layout.** Multiplication's needs (bigger
+  cells, 2 per row, partial staircase) don't get to dictate addition's
+  cell size or row count.
 
 ---
 
