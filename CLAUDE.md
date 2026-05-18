@@ -484,7 +484,12 @@ in case a page somehow forgets to set one.
 5. **Don't rely on LibreOffice to preview the HTML.** LibreOffice's
    `writer_web_pdf_Export` doesn't render CSS Grid. To verify visuals,
    open the HTML in a real browser (or use the `mcp__visualize__show_widget`
-   tool to render it inline).
+   tool to render it inline). And when using `show_widget`, mirror the
+   *actual* DOM structure the app emits — not a simplified one. We
+   debugged a "no breathing space" issue for several rounds because
+   the widget tests put all cards inside one `<div class='grid'>`
+   while the real app wrapped *each row of 3 cards* in its own grid,
+   making CSS `row-gap` ineffective. Always reproduce the real layout.
 6. **Don't render in Word/docx.** That path is abandoned and shouldn't
    come back without an extremely good reason. Word's table rendering
    is hostile to the staircase and per-cell border control we need.
