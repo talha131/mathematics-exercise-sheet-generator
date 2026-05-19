@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
-from .generator import GenerationRequest, OperationConfig
+from .generator import GenerationRequest, OperationConfig, valid_values
 from .html_preview import render_preview
 
 app = FastAPI(title="Math Exercise Sheet Generator")
@@ -44,6 +44,11 @@ class OperationPayload(BaseModel):
     max1: int = Field(default=9, ge=0, le=9999)
     min2: int = Field(default=0, ge=0, le=9999)
     max2: int = Field(default=9, ge=0, le=9999)
+    # Optional digit-shape constraints — currently used only by the
+    # multiplication card in the UI, but accepted on every operation so
+    # other generators can opt in later without a schema change.
+    no_zero_digits: bool = False
+    no_repeated_digits: bool = False
 
     @model_validator(mode="after")
     def _check_ranges(self):
@@ -82,6 +87,21 @@ def _validate_business_rules(p: GeneratePayload) -> None:
             status_code=400,
             detail="Enable at least one operation and set a count greater than 0.",
         )
+    if p.multiplication.enabled and p.multiplication.count > 0:
+        m = p.multiplication
+        if m.no_zero_digits or m.no_repeated_digits:
+            pool1 = valid_values(m.min1, m.max1, m.no_zero_digits, m.no_repeated_digits)
+            pool2 = valid_values(m.min2, m.max2, m.no_zero_digits, m.no_repeated_digits)
+            if not pool1 or not pool2:
+                which = "first number" if not pool1 else "second number"
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Multiplication: the {which} range has no values that "
+                        "satisfy the chosen digit constraints. Widen the range, "
+                        "or turn off one of the constraints."
+                    ),
+                )
     if p.division.enabled and p.division.count > 0:
         d = p.division
         if d.min2 < 1:
@@ -117,6 +137,8 @@ def _to_request(p: GeneratePayload) -> GenerationRequest:
             count=o.count,
             min1=o.min1, max1=o.max1,
             min2=o.min2, max2=o.max2,
+            no_zero_digits=o.no_zero_digits,
+            no_repeated_digits=o.no_repeated_digits,
         )
     return GenerationRequest(
         addition=cfg(p.addition),

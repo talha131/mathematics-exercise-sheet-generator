@@ -175,8 +175,15 @@ Useful when eyeballing a worksheet to see if it looks right.
 |---------|--------:|--------:|-------:|--------:|--------:|--------:|--------------:|
 | Addition / Subtraction        | 3 | 9 | 10 | 18 | 22 | 12 | 41 |
 | Multiplication (1-digit ×)    | 3 | 9 | 10 | 18 | 14 | 10 | 41 |
-| Multiplication (multi-digit ×)| 2 | 11 | 12.22 | 22 | 14 | 10 | 80–100 (depends on op2_digits) |
+| Multiplication (2-digit ×₂)   | 2 | 11 | 12.22 | 22 | 14 | 10 | 67 |
+| Multiplication (3-digit ×₃)   | 2 | 11 | 12.22 | 22 | 14 | 10 | 79 |
 | Division                      | 3 | 9 | 10 | 16 | 12 | 10 | 28 |
+
+For multi-digit × the rule is `card_h = round(row_mm × (op2_digits + 3) + 6)`,
+where the `+ 6` is the ~5.7 mm problem-number paragraph plus a small
+safety margin. The earlier `+ 10` over-budgeted by ~4 mm and forced
+3-digit × 2-digit worksheets to put 4 cards on page 1 / 2 on page 2 —
+now they fit 6 per page on page 1.
 
 Note: addition's `row_gap_mm = 22` is the **maximum possible** with
 the carry row kept and 12 problems per page. Bumping cells to 10mm
@@ -247,8 +254,11 @@ user explicitly chose that bigger-gap configuration after seeing the
   described above.
 
 `render_mul.compute_layout` computes `card_h = row_mm × (op2_digits + 3)
-+ 10` for multi-digit problems (op1, op2, N partials, final answer).
-Row-gap is 14 mm; column-gap is 10 mm.
++ 6` for multi-digit problems (op1, op2, N partials, final answer).
+Row-gap is 14 mm; column-gap is 10 mm. The constant tail mirrors
+addition's `+ 6`: the problem-number paragraph is ~5.7 mm and the
+remaining ~0.3 mm is safety. We tried `+ 10` first and pagination cut
+6-problem 3-digit × 2-digit pages in half.
 
 ### Division
 
@@ -267,11 +277,22 @@ OperationConfig(
     enabled=True,
     count=N,                # 0..200
     min1, max1, min2, max2, # 0..9999
+    no_zero_digits=False,       # exclude operands containing '0'
+    no_repeated_digits=False,   # exclude operands with any digit repeat
 )
 ```
 
 Plus `title`, `include_answer_key`, and `seed` (optional — for
 reproducible problem sets in tests).
+
+The two `no_*_digits` flags live on every `OperationConfig` for schema
+uniformity, but only `_gen_multiplication` honours them today (the UI
+exposes them on the multiplication card only). When either flag is on,
+the generator builds the pool of valid values up front via
+`valid_values(lo, hi, no_zero, no_repeated)` and picks operands from
+the pool — rejection sampling would also work but precomputing keeps it
+fast when constraints make values sparse (e.g. 101–999 with both flags
+on leaves 504 of the 899 integers).
 
 ### Per-operator generation rules
 
@@ -279,8 +300,13 @@ reproducible problem sets in tests).
   cases.
 - **Subtraction** — generates `(a, b)` and **swaps** if `b > a` so the
   answer is always non-negative. Grade 2–3 isn't ready for negatives.
-- **Multiplication** — straight random. Multi-digit cases fall out
-  naturally when the teacher widens `max2`.
+- **Multiplication** — straight random by default. Honours
+  `no_zero_digits` (operands containing `0` are excluded, e.g. 300 and
+  301 are out, 317 is fine) and `no_repeated_digits` (operands with
+  any digit repeat are excluded, e.g. 311 is out, 317 is fine). Both
+  can be combined; the HTTP layer rejects requests where the chosen
+  range and constraints leave no valid values. Multi-digit cases fall
+  out naturally when the teacher widens `max2`.
 - **Division** — generates **exact** division (no remainder). Strategy:
   pick divisor `b ∈ [min2, max2]` (clamping `min2 ≥ 1`), then a quotient
   `q` such that `a = b × q` lies in `[min1, max1]`. If the divisor range
@@ -335,6 +361,10 @@ Two layers of validation:
 2. **`_validate_business_rules(payload)`** runs inside both endpoints
    for things that aren't expressible as field-level validators:
    - At least one operation must be enabled with a count > 0.
+   - Multiplication: when `no_zero_digits` or `no_repeated_digits` is
+     on, scan `valid_values(min1, max1, …)` and `valid_values(min2,
+     max2, …)`; if either pool is empty, return a 400 naming which
+     operand range is unsatisfiable so the user knows what to widen.
    - Division: `min2 ≥ 1`, and a feasibility scan to make sure some
      exact division actually exists in the given ranges. Otherwise we
      return a helpful 400 telling the user to widen the dividend or
@@ -362,8 +392,15 @@ Single page, vanilla JS, no build step.
 - The operation cards are **generated from a JS `OPS` array**, not
   hand-written. Each entry has `id, label, defaultEnabled, defaults
   (count/min1/max1/min2/max2), optional labels override (Dividend /
-  Divisor for ÷), optional legend text`. To add an operation in the UI,
-  add an entry to `OPS` — that's it.
+  Divisor for ÷), optional legend text, optional extras (array of
+  per-op checkbox flags)`. To add an operation in the UI, add an entry
+  to `OPS` — that's it.
+- Per-operation **extras** are extra checkboxes rendered under the
+  number-range rows, separated by a dashed line. Each extra has `id`
+  (must match a payload field on `OperationPayload`), `label`, and
+  optional `hint`. Multiplication uses this to expose `no_zero_digits`
+  and `no_repeated_digits`. `readOp` includes every extra's value in
+  the JSON payload, and disabling the op-card disables its extras too.
 - Each operation card has a checkbox at the top. When unchecked, the
   card collapses (`.body` hidden via `[data-enabled="false"] .body
   {display:none}`) and its number inputs are disabled. The form is
@@ -422,6 +459,16 @@ NOT be relitigated:
 - **Per-operation independent layout.** Multiplication's needs (bigger
   cells, 2 per row, partial staircase) don't get to dictate addition's
   cell size or row count.
+- **Multiplication digit-shape filters are opt-in.** `no_zero_digits`
+  and `no_repeated_digits` default off so the existing defaults
+  (2–12 × 2–12) behave exactly as before. When the teacher enables
+  them, the generator filters operands but does not retry to hit the
+  count if the pool runs out — the HTTP layer's feasibility check is
+  the safety net.
+- **6 multi-digit × cards per page is the target density** at the
+  user's reference shape (101–999 × 11–99). Row-gap 14 mm and cell
+  size 11 mm / 22 pt are tuned so this fits on page 1 with the header.
+  Don't bump `card_h` back up without re-running that case.
 
 ---
 
@@ -496,6 +543,21 @@ in case a page somehow forgets to set one.
 7. **`uv sync` may try to download Python 3.12+ on first run.** That's
    fine on a fresh machine — set `UV_PYTHON_DOWNLOADS=never` and
    `UV_PYTHON=/usr/bin/python3.10` only if there's no Internet.
+8. **In Cowork sessions, file tools and the Linux sandbox can see
+   different snapshots of this repo.** The Read/Write/Edit tools talk
+   to the real Windows filesystem; the bash sandbox mounts a copy
+   that doesn't always reflect file-tool writes (and on at least one
+   session showed a truncated `app/generator.py` to bash while the
+   file tools saw the complete file). To run / test changes in bash,
+   write a working copy into the outputs folder via the file tools
+   (`Write` to a path under `…/outputs/`) and `python3 -c …` against
+   that. To commit, run `git status` from bash first to confirm it
+   sees your edits; if it doesn't, refresh by writing the files back
+   into the repo via the file tools and re-checking.
+9. **The Windows checkout uses CRLF; HEAD is LF.** Without `git
+   config core.autocrlf input`, every file looks fully modified in
+   `git diff`. Run that config once per fresh clone (or once per
+   sandbox) before committing so the diff shows only real changes.
 
 ---
 
@@ -510,6 +572,12 @@ uv run uvicorn app.main:app --reload
 
 Open <http://127.0.0.1:8000>. Edits to Python autoreload; edits to
 `static/index.html` are picked up on the next `/api/preview` call.
+
+On Windows, double-clicking `run.cmd` does the same thing plus spawns
+a minimized 2-second-delay helper that opens the URL in the default
+browser once uvicorn has had time to bind. Delete that
+`start "" /min cmd /c "timeout /t 2 …"` line if you ever want to run
+headless.
 
 ### When changing layout
 
@@ -568,9 +636,11 @@ These came up in discussion but weren't implemented:
   decide that's worth doing.
 - **Remainder support for `÷`.** Generator currently produces exact
   divisions only.
-- **Auto-open browser** when `run.cmd` starts. Intentionally left to
-  the user; trivially added (`start http://127.0.0.1:8000`) if you
-  want it.
+- **Digit-shape constraints for addition / subtraction / division.**
+  The `no_zero_digits` / `no_repeated_digits` flags live on every
+  `OperationConfig` already but only `_gen_multiplication` honours
+  them. If a teacher asks for the same on +/−/÷, wire it into those
+  generators and add the checkboxes to those ops' `extras` in `OPS`.
 
 ---
 
@@ -592,4 +662,7 @@ These came up in discussion but weren't implemented:
 
 ---
 
-*Last updated to reflect the layout pass on 2026-05-17.*
+*Last updated 2026-05-19 — multiplication digit-shape filters
+(`no_zero_digits` / `no_repeated_digits`), multi-digit × card_h budget
+tightened from `+10` to `+6` (so 3-digit × 2-digit fits 6 per page),
+`run.cmd` now auto-launches the browser.*

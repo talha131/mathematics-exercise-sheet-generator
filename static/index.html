@@ -153,6 +153,28 @@
     font-size: 11px;
     margin-top: 6px;
   }
+  .extras {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .extras label {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .extras label small {
+    color: var(--muted);
+    display: block;
+  }
+  .extras input[type="checkbox"] {
+    margin-top: 2px;
+  }
   .actions {
     display: flex;
     align-items: center;
@@ -254,7 +276,15 @@
       defaults: { count: 9, min1: 10, max1: 99, min2: 1,  max2: 99 },
       legend: "If the second number is larger, they're swapped — answers stay non-negative." },
     { id: "multiplication", label: "Multiplication (×)",  defaultEnabled: false,
-      defaults: { count: 6, min1: 2,  max1: 12, min2: 2,  max2: 12 } },
+      defaults: { count: 6, min1: 2,  max1: 12, min2: 2,  max2: 12 },
+      extras: [
+        { id: "no_zero_digits",
+          label: "Exclude operands containing 0",
+          hint: "e.g. 300 and 301 are out; 317 is allowed." },
+        { id: "no_repeated_digits",
+          label: "Exclude operands with repeated digits",
+          hint: "e.g. 311 is out; 317 is allowed." },
+      ] },
     { id: "division",       label: "Division (÷)",        defaultEnabled: false,
       defaults: { count: 6, min1: 2,  max1: 100, min2: 2, max2: 10 },
       labels: { num1: "Dividend", num2: "Divisor" },
@@ -263,6 +293,11 @@
 
   function buildOpCard(op) {
     const labels = op.labels || { num1: "First number", num2: "Second number" };
+    const extras = (op.extras || []).map(ex => `
+      <label>
+        <input type="checkbox" name="${ex.id}" data-extra="1">
+        <span>${ex.label}${ex.hint ? `<small>${ex.hint}</small>` : ""}</span>
+      </label>`).join("");
     return `
       <div class="card op" data-op="${op.id}" data-enabled="${op.defaultEnabled}">
         <h2>
@@ -286,6 +321,7 @@
             <div class="field"><span>max</span><input type="number" name="max2" min="0" max="9999" value="${op.defaults.max2}"></div>
           </div>
           ${op.legend ? `<p class="legend">${op.legend}</p>` : ""}
+          ${extras ? `<div class="extras">${extras}</div>` : ""}
         </div>
       </div>`;
   }
@@ -294,10 +330,13 @@
 
   /* -------- toggle expand/collapse -------- */
   document.querySelectorAll(".card.op").forEach(card => {
-    const cb = card.querySelector("input[type=checkbox]");
+    // the FIRST checkbox in the card is the op-enabled toggle; the extras
+    // checkboxes (no_zero_digits, no_repeated_digits) are after it
+    const cb = card.querySelector("h2 input[type=checkbox]");
     const update = () => {
       card.dataset.enabled = cb.checked ? "true" : "false";
       card.querySelectorAll("input[type=number]").forEach(i => i.disabled = !cb.checked);
+      card.querySelectorAll("input[data-extra]").forEach(i => i.disabled = !cb.checked);
     };
     cb.addEventListener("change", update);
     update();
@@ -307,6 +346,10 @@
   function readOp(opId) {
     const card = document.querySelector(`.card.op[data-op="${opId}"]`);
     const get = n => Number(card.querySelector(`input[name="${n}"]`).value || 0);
+    const flag = n => {
+      const el = card.querySelector(`input[name="${n}"][data-extra]`);
+      return el ? el.checked : false;
+    };
     return {
       enabled: document.getElementById(opId + "-enabled").checked,
       count: get("count"),
@@ -314,6 +357,8 @@
       max1: get("max1"),
       min2: get("min2"),
       max2: get("max2"),
+      no_zero_digits: flag("no_zero_digits"),
+      no_repeated_digits: flag("no_repeated_digits"),
     };
   }
 

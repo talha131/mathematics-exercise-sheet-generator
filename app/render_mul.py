@@ -64,9 +64,14 @@ def compute_layout(problems: list[Problem]) -> dict:
     carry_mm = max(3.5, cell_mm * 0.55)
 
     # Tallest card in the section determines per-row vertical footprint.
-    # Heights are now measured the way the browser will actually render them
-    # (number paragraph + table rows + a small safety margin), not the
-    # over-generous "+22" we used to pad with. That keeps pagination honest.
+    # Heights are measured the way the browser will actually render the
+    # card (number paragraph + table rows + small safety margin). The
+    # constant tail is +6 to match addition's formula: the problem-number
+    # paragraph is ~5.7 mm (11pt @ default line-height + 3pt margin) and
+    # the remaining ~0.3 mm is safety. An earlier +10 was over-generous
+    # and forced pagination to cut a row short — e.g. 3-digit × 2-digit
+    # (101–999 × 11–99) now fits 6 cards per page on page 1:
+    #   24 (header) + 11 (section heading) + 3 × 67 + 2 × 14 = 264 mm ≤ 267.
     max_op2_digits = max(len(str(p.operand2)) for p in problems)
     if max_op2_digits >= 2:
         # op1 + op2 + N partials + final answer = (N + 3) rows of row_mm,
@@ -75,7 +80,7 @@ def compute_layout(problems: list[Problem]) -> dict:
     else:
         # carry + op1 + op2 + answer; the carry row is only carry_mm tall
         content_mm = row_mm * 3 + carry_mm
-    card_h = round(content_mm + 10)                 # 5mm number + 5mm safety
+    card_h = round(content_mm + 6)
 
     return {
         "op": "×",

@@ -31,6 +31,11 @@ echo  Press Ctrl+C to stop.
 echo ============================================================
 echo.
 
+REM Open the browser to the local URL after a brief delay so uvicorn has
+REM time to bind to the port. The helper cmd window is minimized and
+REM closes itself once the browser is launched.
+start "" /min cmd /c "timeout /t 2 /nobreak >nul && start "" http://127.0.0.1:8000"
+
 uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
 set EC=%ERRORLEVEL%
 

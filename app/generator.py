@@ -54,6 +54,12 @@ class OperationConfig:
     max1: int = 9
     min2: int = 0
     max2: int = 9
+    # Digit-shape constraints. Currently only honoured by multiplication
+    # — the UI exposes them on the multiplication card only. The fields
+    # live on OperationConfig (not just multiplication) so other
+    # generators can opt in later without a schema change.
+    no_zero_digits: bool = False        # 300, 301 excluded; 317 allowed
+    no_repeated_digits: bool = False    # 311 excluded; 317 allowed
 
 
 @dataclass
@@ -98,6 +104,30 @@ def _rng(seed: int | None) -> random.Random:
     return random.Random(seed) if seed is not None else random.Random()
 
 
+def digits_ok(value: int, no_zero: bool, no_repeated: bool) -> bool:
+    """Does `value` satisfy the optional digit-shape constraints?
+
+    Single source of truth shared by the generator (to pick operands) and
+    the HTTP layer (to give a friendly feasibility error before generation
+    runs and produces an empty section).
+    """
+    if not no_zero and not no_repeated:
+        return True
+    s = str(value)
+    if no_zero and "0" in s:
+        return False
+    if no_repeated and len(set(s)) != len(s):
+        return False
+    return True
+
+
+def valid_values(lo: int, hi: int, no_zero: bool, no_repeated: bool) -> list[int]:
+    """Every integer in [lo, hi] that satisfies the digit-shape constraints."""
+    if not no_zero and not no_repeated:
+        return list(range(lo, hi + 1))
+    return [v for v in range(lo, hi + 1) if digits_ok(v, no_zero, no_repeated)]
+
+
 # ---------- per-operation generators ----------
 
 def _gen_addition(cfg: OperationConfig, rng: random.Random) -> list[Problem]:
@@ -122,10 +152,24 @@ def _gen_subtraction(cfg: OperationConfig, rng: random.Random) -> list[Problem]:
 
 
 def _gen_multiplication(cfg: OperationConfig, rng: random.Random) -> list[Problem]:
+    """
+    Pick operands from the precomputed pool of values that satisfy the
+    optional digit-shape constraints. Building the pool up front (rather
+    than rejection-sampling) keeps generation fast and stays correct even
+    when the constraints make valid values sparse — e.g. "101–999, no
+    zeros, no repeated digits" leaves only 504 of the 899 values.
+    """
+    pool1 = valid_values(cfg.min1, cfg.max1, cfg.no_zero_digits, cfg.no_repeated_digits)
+    pool2 = valid_values(cfg.min2, cfg.max2, cfg.no_zero_digits, cfg.no_repeated_digits)
+    if not pool1 or not pool2:
+        # The HTTP layer validates feasibility up front; if generation is
+        # reached with an empty pool, fail silently with no problems so the
+        # rest of the worksheet still renders.
+        return []
     out: list[Problem] = []
     for _ in range(cfg.count):
-        a = rng.randint(cfg.min1, cfg.max1)
-        b = rng.randint(cfg.min2, cfg.max2)
+        a = rng.choice(pool1)
+        b = rng.choice(pool2)
         out.append(Problem(a, "×", b, a * b))
     return out
 
